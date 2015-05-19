@@ -23,4 +23,10 @@ def blur(img, mode="gaussian", k=11, var=1.0):
     else: 
         raise Exception("Mode %s not supported." % mode)
 
-    return convolve2d(img, mask, mode="same", boundary="symm")
+    # blur each color channel separately
+    out = np.zeros(img.shape)
+    for i in range(0, img.shape[2]):
+        out[:, :, i] = convolve2d(img[:, :, i], mask, 
+                                  mode="same", boundary="symm")
+    
+    return out
