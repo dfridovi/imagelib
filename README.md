@@ -13,11 +13,11 @@ Each code file in this library represents one of the following.
 
 ## Functionality
 The following functions are currently supported.
+* Variable image blurring
 
 ## In the works...
 The following functionality will be added soon!
 * Variable image sharpening
-* Variable image blurring
 * Deconvolution (blind/non-blind)
 * Focus detection
 * Object detection
