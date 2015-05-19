@@ -6,6 +6,7 @@ This library is intended for use by recreational photographers, but also by rese
 
 ## General organization
 Each code file in this library represents one of the following.
+
 1. A data type used by other files.
 2. A set of basic functions (such as loading an image) which will be called by many of the other functions in the library.
 3. A function intended to be called by a main() function in another file. These functions implement different procedures, for example image sharpening, or blurring, or object detection, or focus detection.
