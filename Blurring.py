@@ -6,7 +6,7 @@ import numpy as np
 from scipy.signal import convolve2d
 import BasicFunctions as bf
 
-def blur(img, mode="gaussian", k=11, var=1.0):
+def blur(img, mode="gaussian", k=11):
     """
     Blurs image with a kernel mask of the given type. Supports the following
     modes, each of which can have varying size k:
@@ -15,7 +15,7 @@ def blur(img, mode="gaussian", k=11, var=1.0):
     """
     
     if mode == "gaussian":
-        mask = bf.gauss_mask(k, var)
+        mask = bf.gauss_mask(k)
         
     elif mode == "box":
         mask = bf.box_mask(k)

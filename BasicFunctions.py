@@ -29,16 +29,19 @@ def imsave(img, imfile):
 
     mpimg.imsave(imfile, img)
 
-def gauss_mask(k, var=1.0):
-    """ Return k-by-k 2D Gaussian on the range [-3sd, +3sd] in both x,y."""
+def gauss_mask(k):
+    """ 
+    Return k-by-k 2D Gaussian on the range [-3, +3] in both x,y.
+    Assumes unit variance (as a normalization). 
+    """
 
-    xvals = np.linspace(-3.0*np.sqrt(var), 3.0*np.sqrt(var), k)
-    yvals = np.linspace(3.0*np.sqrt(var), -3.0*np.sqrt(var), k)
+    xvals = np.linspace(-3.0, 3.0, k)
+    yvals = np.linspace(3.0, -3.0, k)
     
     mask = np.zeros((k, k), dtype=np.float)
     for i in range(k):
         for j in range(k):
-            mask[i, j] = np.exp(-0.5 * (xvals[j]**2 + yvals[i]**2) / var)
+            mask[i, j] = np.exp(-0.5 * (xvals[j]**2 + yvals[i]**2))
             
     mask = mask / mask.sum()
     return mask
@@ -61,3 +64,10 @@ def box_mask(k):
     """ Return a k-by-k box filter mask."""
 
     return (1.0 / (k * k)) * np.ones((k, k))
+
+def truncate(img):
+    """ Truncate values in image to range [0.0, 1.0]. """
+
+    img[img > 1.0] = 1.0
+    img[img < 0.0] = 0.0
+    return img
