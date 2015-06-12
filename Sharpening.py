@@ -20,22 +20,24 @@ def sharpen(img, k=11, lo_pass=True, min_diff=0.05, alpha=1.0):
     # sharpen each color channel separately
     out = np.zeros(img.shape)
     sharp_mask = bf.gauss_mask(k)
+    blur_mask = bf.gauss_mask(2 * int(1.0 + (k - 1) / 4.0) + 1) 
     for i in range(0, img.shape[2]):
         blurred = convolve2d(img[:, :, i], sharp_mask, 
                              mode="same", boundary="symm")
         diff = img[:, :, i] - blurred
-        diff[np.abs(diff) < min_diff] = 0.0
         scaled = alpha * diff
+
+        if lo_pass:
+            
+            # if necessary, blur each color channel separately
+            diff = convolve2d(diff, blur_mask, 
+                              mode="same", boundary="symm")
+
+        diff[np.abs(diff) < min_diff] = 0.0
         out[:, :, i] = img[:, :, i] + scaled
 
+
     # truncate to [0, 1]
-    out = bf.truncate(out)        
-    if lo_pass:
-
-        # if necessary, blur each color channel separately
-        blur_mask = bf.gauss_mask(2 * int(1.0 + (k - 1) / 8.0) + 1) 
-        for i in range(0, img.shape[2]):
-            out[:, :, i] = convolve2d(img[:, :, i], blur_mask, 
-                                      mode="same", boundary="symm")
-
+    out = bf.truncate(out)  
+    
     return out

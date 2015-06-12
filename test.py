@@ -14,5 +14,5 @@ img = bf.imread("eye.png")
 #bf.imshow(blurred)
 
 # test sharpening
-sharpened = sharpen(img, k=21, lo_pass=True, min_diff=0.01, alpha=5.0)
+sharpened = sharpen(img, k=21, lo_pass=True, min_diff=0.01, alpha=3.0)
 bf.imshow(sharpened)
