@@ -18,6 +18,7 @@ The following functions are currently supported.
 
 ## In the works...
 The following functionality will be added soon!
+* Eye detection
 * Deconvolution (blind/non-blind)
 * Focus detection
 * Object detection
