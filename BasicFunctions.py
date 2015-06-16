@@ -71,3 +71,12 @@ def truncate(img):
     img[img > 1.0] = 1.0
     img[img < 0.0] = 0.0
     return img
+
+def rgb2gray(img):
+    """ Convert an RGB image to grayscale. """
+
+    r = img[:, :, 0]
+    g = img[:, :, 1]
+    b = img[:, :, 2]
+
+    return 0.299*r + 0.587*g + 0.114*b
