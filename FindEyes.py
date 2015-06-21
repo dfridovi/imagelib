@@ -59,7 +59,7 @@ def svmEyes(img, training, eye_centers, eye_shape,
     * eye_shape -- shape of eye patch
     * svm -- sklearn svm model; may be provided if it exists
     * scaler -- sklearn preprocessing scaler
-    * locs -- approximate locations of eyes; used to speed up search process
+    * locs -- approximate centers of eyes; used to speed up search process
     """
 
     img_gray = bf.rgb2gray(img)
@@ -79,7 +79,8 @@ def svmEyes(img, training, eye_centers, eye_shape,
         while num_negs < 100:
             tl = (np.random.randint(0, img.shape[0]), 
                   np.random.randint(0, img.shape[1]))
-            if isValid(img, tl, eye_shape, eye_centers):
+            if (isValid(img, tl, eye_shape) and not
+                overlapsEye(tl, eye_centers, eye_shape)):
                 num_negs += 1
                 negs.append(extractTL(training_gray, tl, eye_shape))
 
@@ -103,29 +104,121 @@ def svmEyes(img, training, eye_centers, eye_shape,
         for neg in negs:
             negs_hog.append(feature.hog(neg))
 
-        # set up training dataset
-        training_set = np.vstack((eyes_hog, negs_hog))
+        # set up training dataset (eyes = -1, negs = +1)
+        training_set = np.vstack((negs_hog, eyes_hog))
 
         training_labels = np.ones(num_eyes + num_negs)
-        training_labels[num_eyes:] = 0
+        training_labels[num_negs:] = -1
         
         scaler = preprocessing.StandardScaler().fit(training_set)
         training_set = scaler.transform(training_set)
 
         # train SVM
-        weights = {0 : 1.0, 1 : 1.0}
+        weights = {-1 : 1.0, 1 : 1.0}
         svm = SVM.SVC(C=1.0, gamma=0.1, kernel="rbf", class_weight=weights)
         svm.fit(training_set, training_labels)
 
     # find best matches, given svm and img_gray
-    if locs
+    detected = searchForEyes(img_gray, svm, scaler, eye_shape, locs)
+    centers = []
+    for tl in detected:
+        centers.append(tl2center(tl, eye_shape))
+
+    return centers
 
 # Helper functions for svmEyes()
+def searchForEyes(img, svm, scaler, eye_shape, locs):
+    """ Explore image starting at locs, visiting as few pixels as possible. """
+    
+    pq = PriorityQueue()
+    visited = np.zeros((img.shape[0]-eye_shape[0],
+                        img.shape[1]-eye_shape[1]), dtype=np.bool)
+
+    # insert provided locations and 10 random locations around each one
+    for loc in locs:
+        tl = center2tl(loc, eye_shape)
+        visited[loc[0], loc[1]] = True
+        score = testWindow(img, svm, scaler, eye_shape, tl)
+        pq.put_nowait((score, tl))
+
+        num_random = 0
+        while (num_random < 10):
+            tl = (loc[0] + np.random.randint(-25, 25), 
+                  loc[1] + np.random.randint(-25, 25))
+            if isValid(img, tl, eye_shape) and not visited[tl[0], tl[1]]:
+                num_random += 1
+                visited[tl[0], tl[1]] = True
+                score = testWindow(img, svm, scaler, eye_shape, tl)
+                pq.put_nowait((score, tl))
+                
+    # insert 50 random locations
+    num_random = 0
+    while (num_random < 50):
+        tl = (np.random.randint(0, img.shape[0]-eye_shape[0]),
+              np.random.randint(0, img.shape[1]-eye_shape[1]))
+        if not visited[tl[0], tl[1]]:
+            num_random += 1
+            visited[tl[0], tl[1]] = True
+            score = testWindow(img, svm, scaler, eye_shape, tl)
+            pq.put_nowait((score, tl))
+
+    # pick out the location with the best score
+    best_score, best_tl = pq.get_nowait()
+    
+    # add 50 more random locations until best score is a match
+    while best_score > 0:
+        num_random = 0
+        while (num_random < 50):
+            tl = (np.random.randint(0, img.shape[0]-eye_shape[0]),
+                  np.random.randint(0, img.shape[1]-eye_shape[1]))
+            if not visited[tl[0], tl[1]]:
+                num_random += 1
+                visited[tl[0], tl[1]] = True
+                score = testWindow(img, svm, scaler, eye_shape, tl)
+                pq.put_nowait((score, tl))
+        
+        best_score, best_tl = pq.get_nowait()
+
+    # stop when there are two good matches (score < -0.5) far enough apart
+    # to be from two eyes, or after a maximum loop count
+    loop_cnt = 0
+    best1 = (best_score, best_tl)
+    best2 = (1.0, (0, 0))
+    while (loop_cnt < 1000 and 
+           best1[0] < -0.5 and 
+           best2[0] < -0.5 and
+           dist2(best1[1], best2[1]) > eye_shape[1]):
+
+        # look at unvisited pixels adjacent to current best_tl
+        for tl in [(best_tl[0]-1, best_tl[1]), 
+                   (best_tl[0]+1, best_tl[1]), 
+                   (best_tl[0], best_tl[1]-1), 
+                   (best_tl[0], best_tl[1]+1)]:
+            if isValid(img, tl, eye_shape) and not visited[tl[0], tl[1]]:
+                visited[tl[0], tl[1]] = True
+                score = testWindow(img, svm, scaler, eye_shape, tl)
+                pq.put_nowait((score, tl))
+
+        best_score, best_tl = pq.get_nowait()
+        if best_score < best1[0]:
+            best2 = best1
+            best1 = (best_score, best_tl)
+        elif best_score < best2[0]:
+            best2 = (best_score, best_tl)
+
+    if loop_cnt >= 1000:
+        print "Did not find two good matches. Halting."
+
+    return [best1[1], best2[1]]
+    
 def center2tl(ctr, shape):
     return (ctr[0] - round(0.5*shape[0]), ctr[1] - round(0.5*shape[1]))
 
 def tl2center(tl, shape):
     return (tl[0] + round(0.5*shape[0]), tl[1] - round(0.5*shape[1]))
+
+def dist2(coords1, coords2):
+    return (coords1[0]-coords2[0])**2 + (coords1[1]-coords2[1])**2
 
 def overlapsEye(tl, eye_centers, eye_shape):
     for ctr in eye_centers:
@@ -137,10 +230,9 @@ def overlapsEye(tl, eye_centers, eye_shape):
                 return True
     return False
 
-def isValid(img, tl, eye_shape, eye_centers):
+def isValid(img, tl, eye_shape):
     if (tl[0] < img.shape[0]-eye_shape[0] and 
-        tl[1] < img.shape[1]-eye_shape[1] and not 
-        overlapsEye(tl, eye_centers, eye_shape)):
+        tl[1] < img.shape[1]-eye_shape[1])
         return True
     return False
     
@@ -198,7 +290,7 @@ def patch2eye(patch, eye_shape):
     return patch[3*eye_shape[0]:-3*eye_shape[0], 
                  3*eye_shape[1]:-3*eye_shape[1]]
 
-def testWindow(img, tl, svm, scaler):
+def testWindow(img, svm, scaler, eye_shape, tl):
     window = extractTL(img, tl, eye_shape)
     window_hog = scaler.transform(feature.hog(window))
     label = svm.predict(window_hog)
