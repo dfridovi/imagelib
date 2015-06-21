@@ -187,7 +187,7 @@ def searchForEyes(img, svm, scaler, eye_shape, locs):
     while (loop_cnt < 1000 and 
            best1[0] < -0.5 and 
            best2[0] < -0.5 and
-           dist2(best1[1], best2[1]) > eye_shape[1]):
+           dist(best1[1], best2[1]) > eye_shape[1]):
 
         # look at unvisited pixels adjacent to current best_tl
         for tl in [(best_tl[0]-1, best_tl[1]), 
@@ -199,11 +199,11 @@ def searchForEyes(img, svm, scaler, eye_shape, locs):
                 score = testWindow(img, svm, scaler, eye_shape, tl)
                 pq.put_nowait((score, tl))
 
+        # get new best and update
         best_score, best_tl = pq.get_nowait()
-        if best_score < best1[0]:
-            best2 = best1
+        if best_score < best1[0] and dist(best_tl, best1[1]) < eye_shape[1]:
             best1 = (best_score, best_tl)
-        elif best_score < best2[0]:
+        elif best_score < best2[0] and dist(best_tl, best2[1]) < eye_shape[1]:
             best2 = (best_score, best_tl)
 
     if loop_cnt >= 1000:
@@ -217,8 +217,8 @@ def center2tl(ctr, shape):
 def tl2center(tl, shape):
     return (tl[0] + round(0.5*shape[0]), tl[1] - round(0.5*shape[1]))
 
-def dist2(coords1, coords2):
-    return (coords1[0]-coords2[0])**2 + (coords1[1]-coords2[1])**2
+def dist(coords1, coords2):
+    return np.sqrt((coords1[0]-coords2[0])**2 + (coords1[1]-coords2[1])**2)
 
 def overlapsEye(tl, eye_centers, eye_shape):
     for ctr in eye_centers:
