@@ -22,9 +22,11 @@ img = bf.imread("obama.jpg")
 
 # test eye detection
 eye_shape = (25, 50)
-eye1_ctr = tl2center((200, 480), eye_shape)
-eye2_ctr = tl2center((195, 655), eye_shape)
+eye1_tl = (200, 480)
+eye2_tl = (195, 655)
+eye1_ctr = tl2center(eye1_tl, eye_shape)
+eye2_ctr = tl2center(eye2_tl, eye_shape)
 eyes = findEyes(img, mode="svm", train=img, eye_centers=[eye1_ctr, eye2_ctr], 
                 eye_shape=eye_shape, svm=None, scaler=None, 
-                locs=[eye2_ctr])
+                locs=[eye1_tl, eye2_tl])
 print eyes

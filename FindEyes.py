@@ -66,6 +66,7 @@ def svmEyes(img, training, eye_centers, eye_shape,
     img_gray = bf.rgb2gray(img)
 
     if svm is None:
+        print "Building SVM classifier..."
         training_gray = bf.rgb2gray(training)
         eyes = []
 
@@ -75,9 +76,10 @@ def svmEyes(img, training, eye_centers, eye_shape,
             eyes.append(eye_gray)
 
         # negative exemplars from rest of image
+        print "Constructing negative exemplars..."
         negs = []
         num_negs = 0
-        while num_negs < 100:
+        while num_negs < 1000:
             tl = (np.random.randint(0, img.shape[0]), 
                   np.random.randint(0, img.shape[1]))
             if (isValid(img, tl, eye_shape) and not
@@ -86,12 +88,13 @@ def svmEyes(img, training, eye_centers, eye_shape,
                 negs.append(extractTL(training_gray, tl, eye_shape))
 
         # create more positive exemplars by applying random small 3D rotations
+        print "Constructing positive exemplars..."
         num_eyes = len(eyes)
         patches = deque([eye2patch(training_gray, 
                                    center2tl(ctr, eye_shape), 
                                    eye_shape) for ctr in eye_centers])
                         
-        while num_eyes < 100:
+        while num_eyes < 1000:
             patch = patches.popleft()
             jittered = jitter(patch, eye_shape)
             patches.append(patch)
@@ -117,8 +120,9 @@ def svmEyes(img, training, eye_centers, eye_shape,
         training_set = scaler.transform(training_set)
 
         # train SVM
+        print "Training SVM..."
         weights = {-1 : 1.0, 1 : 1.0}
-        svm = SVM.SVC(C=1.0, gamma=0.1, kernel="rbf", class_weight=weights)
+        svm = SVM.SVC(C=5.0, kernel="linear", class_weight=weights)
         svm.fit(training_set, training_labels)
 
     # find best matches, given svm and img_gray
@@ -139,43 +143,55 @@ def searchForEyes(img, svm, scaler, eye_shape, locs=[]):
     scores = np.zeros(visited.shape, dtype=np.float)
 
     # insert provided locations and 100 random locations around each one
+    print "Seeding initial locations..."
     for loc in locs:
         tl = center2tl(loc, eye_shape)
         visited[loc[0], loc[1]] = True
-        score = testWindow(img, svm, scaler, eye_shape, tl)
+        score = testWindow(img, svm, scaler, eye_shape, tl)[0]
         scores[loc[0], loc[1]] = score
         pq.put_nowait((score, tl))
 
         num_random = 0
-        while (num_random < 100):
+        while (num_random < 400):
             tl = (loc[0] + np.random.randint(-25, 25), 
                   loc[1] + np.random.randint(-25, 25))
             if isValid(img, tl, eye_shape) and not visited[tl[0], tl[1]]:
                 num_random += 1
                 visited[tl[0], tl[1]] = True
-                score = testWindow(img, svm, scaler, eye_shape, tl)
+                score = testWindow(img, svm, scaler, eye_shape, tl)[0]
                 scores[tl[0], tl[1]] = score
                 pq.put_nowait((score, tl))
+
+        num_random = 0
+        while (num_random < 500):
+            tl = (loc[0] + np.random.randint(-50, 50), 
+                  loc[1] + np.random.randint(-50, 50))
+            if isValid(img, tl, eye_shape) and not visited[tl[0], tl[1]]:
+                num_random += 1
+                visited[tl[0], tl[1]] = True
+                score = testWindow(img, svm, scaler, eye_shape, tl)[0]
+                scores[tl[0], tl[1]] = score
+                pq.put_nowait((score, tl))
+
                 
-    # insert 50 random locations
-    print "Inserting random locations..."
-    num_random = 0
-    while (num_random < 50):
-        tl = (np.random.randint(0, img.shape[0]-eye_shape[0]),
-              np.random.randint(0, img.shape[1]-eye_shape[1]))
-        if not visited[tl[0], tl[1]]:
-            print "Random location: " + str(num_random)
-            num_random += 1
-            visited[tl[0], tl[1]] = True
-            score = testWindow(img, svm, scaler, eye_shape, tl)
-            scores[tl[0], tl[1]] = score
-            pq.put_nowait((score, tl))
+    # # insert 50 random locations
+    # print "Inserting 500 random locations..."
+    # num_random = 0
+    # while (num_random < 500):
+    #     tl = (np.random.randint(0, img.shape[0]-eye_shape[0]),
+    #           np.random.randint(0, img.shape[1]-eye_shape[1]))
+    #     if not visited[tl[0], tl[1]]:
+    #         num_random += 1
+    #         visited[tl[0], tl[1]] = True
+    #         score = testWindow(img, svm, scaler, eye_shape, tl)[0]
+    #         scores[tl[0], tl[1]] = score
+    #         pq.put_nowait((score, tl))
 
     # pick out the location with the best score
     best_score, best_tl = pq.get_nowait()
     
     # add 50 more random locations until best score is a match
-    while best_score > 0:
+    while best_score >= 0:
         print "Adding 50 more random locations..."
         num_random = 0
         while (num_random < 50):
@@ -184,7 +200,7 @@ def searchForEyes(img, svm, scaler, eye_shape, locs=[]):
             if not visited[tl[0], tl[1]]:
                 num_random += 1
                 visited[tl[0], tl[1]] = True
-                score = testWindow(img, svm, scaler, eye_shape, tl)
+                score = testWindow(img, svm, scaler, eye_shape, tl)[0]
                 scores[tl[0], tl[1]] = score
                 pq.put_nowait((score, tl))
         
@@ -193,9 +209,9 @@ def searchForEyes(img, svm, scaler, eye_shape, locs=[]):
     # stop when there are two good matches (score < -0.5) far enough apart
     # to be from two eyes, or after a maximum loop count
     loop_cnt = 0
-    best1 = (best_score, best_tl)
-    best2 = (1.0, (0, 0))
-    while (loop_cnt < 1000 and (best1[0] > -0.5 or best2[0] > -0.5)):
+    tracker = MatchTracker()
+    tracker.insert(best_score, best_tl)
+    while (loop_cnt < 1000 and len(tracker.getBigClusters()) < 2):
 
         # look at unvisited pixels adjacent to current best_tl
         for tl in [(best_tl[0]-1, best_tl[1]), 
@@ -204,23 +220,17 @@ def searchForEyes(img, svm, scaler, eye_shape, locs=[]):
                    (best_tl[0], best_tl[1]+1)]:
             if isValid(img, tl, eye_shape) and not visited[tl[0], tl[1]]:
                 visited[tl[0], tl[1]] = True
-                score = testWindow(img, svm, scaler, eye_shape, tl)
+                score = testWindow(img, svm, scaler, eye_shape, tl)[0]
                 scores[tl[0], tl[1]] = score
                 pq.put_nowait((score, tl))
 
         # get new best and update
         best_score, best_tl = pq.get_nowait()
-        if best_score < best1[0] and dist(best_tl, best1[1]) < eye_shape[1]:
-            best1 = (best_score, best_tl)
-        elif best_score < best2[0] and dist(best_tl, best2[1]) < eye_shape[1]:
-            best2 = (best_score, best_tl)
-        elif best_score < best2[0]:
-            best2 = (best_score, best_tl)
-        elif best_score < best1[0]:
-            best1 = (best_score, best_tl)
+        if best_score < 0:
+            tracker.insert(best_score, best_tl)
 
         print "Current loop count: " + str(loop_cnt)
-        print best1, best2
+        print "Current cluster count: " + str(len(tracker.getBigClusters()))
         loop_cnt += 1
 
     if loop_cnt >= 1000:
@@ -229,8 +239,47 @@ def searchForEyes(img, svm, scaler, eye_shape, locs=[]):
 
     bf.imshow(visited, cbar=True)
     bf.imshow(scores, cbar=True)
-    return [best1[1], best2[1]]
+    return tracker.getBigClusters()
     
+class MatchTracker:
+    """ Keep track of SVM matches, and do rudimentary clustering. """
+
+    def __init__(self, MAX_DIST=50, MIN_MASS=-1.5):
+        self.clusters = {}
+        self.MAX_DIST = MAX_DIST
+        self.MIN_MASS = MIN_MASS
+
+    def insert(self, score, location):
+        best_centroid = None
+        best_dist = float("inf")
+
+        # search existing clusters for best match
+        for centroid, mass in self.clusters.iteritems():
+            d = dist(centroid, location)
+            if d < best_dist:
+                best_centroid = centroid
+                best_dist = d
+
+        if best_dist < self.MAX_DIST:
+            old_mass = self.clusters[best_centroid]
+            new_mass = old_mass + score
+            centroid = ((best_centroid[0]*old_mass + location[0]*score) / new_mass, 
+                        (best_centroid[1]*old_mass + location[1]*score) / new_mass)
+            del self.clusters[best_centroid]
+            self.clusters[centroid] = new_mass
+
+        # start new cluster
+        else:
+            self.clusters[location] = score
+
+    def getBigClusters(self):
+        big_clusters = []
+        for centroid, mass in self.clusters.iteritems():
+            if mass < self.MIN_MASS:
+                big_clusters.append(centroid)
+
+        return big_clusters
+
 def center2tl(ctr, shape):
     return (ctr[0] - round(0.5*shape[0]), ctr[1] - round(0.5*shape[1]))
 
