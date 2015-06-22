@@ -5,12 +5,12 @@ Test file to demonstrate imagelib functionality.
 import BasicFunctions as bf
 from Sharpening import sharpen
 from Blurring import blur
-from FindEyes import findEyes
+from FindEyes import findEyes, tl2center
 
 # import image
-img = bf.imread("lotr.JPG")
+#img = bf.imread("lotr.JPG")
 #img = bf.imread("eye.png")
-#img = bf.imread("obama.jpg")
+img = bf.imread("obama.jpg")
 
 # test blurring
 #blurred = blur(img, mode="gaussian", k=5)
@@ -21,5 +21,10 @@ img = bf.imread("lotr.JPG")
 #bf.imshow(sharpened)
 
 # test eye detection
-eyes = findEyes(img, mode="haar", train=None, mask=None)
+eye_shape = (25, 50)
+eye1_ctr = tl2center((200, 480), eye_shape)
+eye2_ctr = tl2center((195, 655), eye_shape)
+eyes = findEyes(img, mode="svm", train=img, eye_centers=[eye1_ctr, eye2_ctr], 
+                eye_shape=eye_shape, svm=None, scaler=None, 
+                locs=[eye2_ctr])
 print eyes

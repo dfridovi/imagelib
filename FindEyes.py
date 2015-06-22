@@ -13,7 +13,8 @@ from collections import deque
 from Queue import PriorityQueue
 import sys
 
-def findEyes(img, mode="haar", train=None, mask=None):
+def findEyes(img, mode="haar", train=None, eye_centers=None, eye_shape=None,
+             svm=None, scaler=None, locs=[]):
     """
     Two modes:
     1. haar -- uses the OpenCV built-in cascade classifier
@@ -23,7 +24,7 @@ def findEyes(img, mode="haar", train=None, mask=None):
     if mode == "haar":
         return haarEyes(img)
     elif mode == "svm":
-        return svmEyes(img, train, mask)
+        return svmEyes(img, train, eye_centers, eye_shape, svm, scaler, locs)
     else:
         raise Exception("Mode %s not supported." % mode)
 
@@ -50,7 +51,7 @@ def haarEyes(img):
     return eye_centers
 
 def svmEyes(img, training, eye_centers, eye_shape, 
-            svm=None, scaler=None, locs=None):
+            svm=None, scaler=None, locs=[]):
     """ 
     SVM-based approach to detecting eyes. Input is as follows:
     * img -- new image to be searched for eyes
@@ -86,8 +87,10 @@ def svmEyes(img, training, eye_centers, eye_shape,
 
         # create more positive exemplars by applying random small 3D rotations
         num_eyes = len(eyes)
-        patches = deque([eye2patch(training_gray, eye1_tl, eye_shape),
-                         eye2patch(training_gray, eye2_tl, eye_shape)])
+        patches = deque([eye2patch(training_gray, 
+                                   center2tl(ctr, eye_shape), 
+                                   eye_shape) for ctr in eye_centers])
+                        
         while num_eyes < 100:
             patch = patches.popleft()
             jittered = jitter(patch, eye_shape)
@@ -127,39 +130,45 @@ def svmEyes(img, training, eye_centers, eye_shape,
     return centers
 
 # Helper functions for svmEyes()
-def searchForEyes(img, svm, scaler, eye_shape, locs):
+def searchForEyes(img, svm, scaler, eye_shape, locs=[]):
     """ Explore image starting at locs, visiting as few pixels as possible. """
     
     pq = PriorityQueue()
     visited = np.zeros((img.shape[0]-eye_shape[0],
                         img.shape[1]-eye_shape[1]), dtype=np.bool)
+    scores = np.zeros(visited.shape, dtype=np.float)
 
-    # insert provided locations and 10 random locations around each one
+    # insert provided locations and 100 random locations around each one
     for loc in locs:
         tl = center2tl(loc, eye_shape)
         visited[loc[0], loc[1]] = True
         score = testWindow(img, svm, scaler, eye_shape, tl)
+        scores[loc[0], loc[1]] = score
         pq.put_nowait((score, tl))
 
         num_random = 0
-        while (num_random < 10):
+        while (num_random < 100):
             tl = (loc[0] + np.random.randint(-25, 25), 
                   loc[1] + np.random.randint(-25, 25))
             if isValid(img, tl, eye_shape) and not visited[tl[0], tl[1]]:
                 num_random += 1
                 visited[tl[0], tl[1]] = True
                 score = testWindow(img, svm, scaler, eye_shape, tl)
+                scores[tl[0], tl[1]] = score
                 pq.put_nowait((score, tl))
                 
     # insert 50 random locations
+    print "Inserting random locations..."
     num_random = 0
     while (num_random < 50):
         tl = (np.random.randint(0, img.shape[0]-eye_shape[0]),
               np.random.randint(0, img.shape[1]-eye_shape[1]))
         if not visited[tl[0], tl[1]]:
+            print "Random location: " + str(num_random)
             num_random += 1
             visited[tl[0], tl[1]] = True
             score = testWindow(img, svm, scaler, eye_shape, tl)
+            scores[tl[0], tl[1]] = score
             pq.put_nowait((score, tl))
 
     # pick out the location with the best score
@@ -167,6 +176,7 @@ def searchForEyes(img, svm, scaler, eye_shape, locs):
     
     # add 50 more random locations until best score is a match
     while best_score > 0:
+        print "Adding 50 more random locations..."
         num_random = 0
         while (num_random < 50):
             tl = (np.random.randint(0, img.shape[0]-eye_shape[0]),
@@ -175,6 +185,7 @@ def searchForEyes(img, svm, scaler, eye_shape, locs):
                 num_random += 1
                 visited[tl[0], tl[1]] = True
                 score = testWindow(img, svm, scaler, eye_shape, tl)
+                scores[tl[0], tl[1]] = score
                 pq.put_nowait((score, tl))
         
         best_score, best_tl = pq.get_nowait()
@@ -184,10 +195,7 @@ def searchForEyes(img, svm, scaler, eye_shape, locs):
     loop_cnt = 0
     best1 = (best_score, best_tl)
     best2 = (1.0, (0, 0))
-    while (loop_cnt < 1000 and 
-           best1[0] < -0.5 and 
-           best2[0] < -0.5 and
-           dist(best1[1], best2[1]) > eye_shape[1]):
+    while (loop_cnt < 1000 and (best1[0] > -0.5 or best2[0] > -0.5)):
 
         # look at unvisited pixels adjacent to current best_tl
         for tl in [(best_tl[0]-1, best_tl[1]), 
@@ -197,6 +205,7 @@ def searchForEyes(img, svm, scaler, eye_shape, locs):
             if isValid(img, tl, eye_shape) and not visited[tl[0], tl[1]]:
                 visited[tl[0], tl[1]] = True
                 score = testWindow(img, svm, scaler, eye_shape, tl)
+                scores[tl[0], tl[1]] = score
                 pq.put_nowait((score, tl))
 
         # get new best and update
@@ -205,17 +214,28 @@ def searchForEyes(img, svm, scaler, eye_shape, locs):
             best1 = (best_score, best_tl)
         elif best_score < best2[0] and dist(best_tl, best2[1]) < eye_shape[1]:
             best2 = (best_score, best_tl)
+        elif best_score < best2[0]:
+            best2 = (best_score, best_tl)
+        elif best_score < best1[0]:
+            best1 = (best_score, best_tl)
+
+        print "Current loop count: " + str(loop_cnt)
+        print best1, best2
+        loop_cnt += 1
 
     if loop_cnt >= 1000:
         print "Did not find two good matches. Halting."
 
+
+    bf.imshow(visited, cbar=True)
+    bf.imshow(scores, cbar=True)
     return [best1[1], best2[1]]
     
 def center2tl(ctr, shape):
     return (ctr[0] - round(0.5*shape[0]), ctr[1] - round(0.5*shape[1]))
 
 def tl2center(tl, shape):
-    return (tl[0] + round(0.5*shape[0]), tl[1] - round(0.5*shape[1]))
+    return (tl[0] + round(0.5*shape[0]), tl[1] + round(0.5*shape[1]))
 
 def dist(coords1, coords2):
     return np.sqrt((coords1[0]-coords2[0])**2 + (coords1[1]-coords2[1])**2)
@@ -226,13 +246,14 @@ def overlapsEye(tl, eye_centers, eye_shape):
         if not (((tl[0] < eye_tl[0]-eye_shape[0]) or 
                  (tl[0] > eye_tl[0]+eye_shape[0])) and
                 ((tl[1] < eye_tl[1]-eye_shape[1]) or 
-                 (tl[1] > eye_tl[1]+eye_shape[1]))
+                 (tl[1] > eye_tl[1]+eye_shape[1]))):
                 return True
     return False
 
 def isValid(img, tl, eye_shape):
     if (tl[0] < img.shape[0]-eye_shape[0] and 
-        tl[1] < img.shape[1]-eye_shape[1])
+        tl[1] < img.shape[1]-eye_shape[1] and
+        tl[0] >= 0 and tl[1] >= 0):
         return True
     return False
     
