@@ -28,5 +28,6 @@ eye1_ctr = tl2center(eye1_tl, eye_shape)
 eye2_ctr = tl2center(eye2_tl, eye_shape)
 eyes = findEyes(img, mode="svm", train=img, eye_centers=[eye1_ctr, eye2_ctr], 
                 eye_shape=eye_shape, svm=None, scaler=None, 
-                locs=[eye1_tl, eye2_tl])
+                #locs=[])
+                locs=[(190, 470), (190, 650)])
 print eyes

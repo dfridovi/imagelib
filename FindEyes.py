@@ -138,6 +138,7 @@ def searchForEyes(img, svm, scaler, eye_shape, locs=[]):
     """ Explore image starting at locs, visiting as few pixels as possible. """
     
     pq = PriorityQueue()
+    tracker = MatchTracker()
     visited = np.zeros((img.shape[0]-eye_shape[0],
                         img.shape[1]-eye_shape[1]), dtype=np.bool)
     scores = np.zeros(visited.shape, dtype=np.float)
@@ -151,8 +152,9 @@ def searchForEyes(img, svm, scaler, eye_shape, locs=[]):
         scores[loc[0], loc[1]] = score
         pq.put_nowait((score, tl))
 
+
         num_random = 0
-        while (num_random < 400):
+        while (num_random < 50):
             tl = (loc[0] + np.random.randint(-25, 25), 
                   loc[1] + np.random.randint(-25, 25))
             if isValid(img, tl, eye_shape) and not visited[tl[0], tl[1]]:
@@ -163,7 +165,7 @@ def searchForEyes(img, svm, scaler, eye_shape, locs=[]):
                 pq.put_nowait((score, tl))
 
         num_random = 0
-        while (num_random < 500):
+        while (num_random < 100):
             tl = (loc[0] + np.random.randint(-50, 50), 
                   loc[1] + np.random.randint(-50, 50))
             if isValid(img, tl, eye_shape) and not visited[tl[0], tl[1]]:
@@ -174,18 +176,18 @@ def searchForEyes(img, svm, scaler, eye_shape, locs=[]):
                 pq.put_nowait((score, tl))
 
                 
-    # # insert 50 random locations
-    # print "Inserting 500 random locations..."
-    # num_random = 0
-    # while (num_random < 500):
-    #     tl = (np.random.randint(0, img.shape[0]-eye_shape[0]),
-    #           np.random.randint(0, img.shape[1]-eye_shape[1]))
-    #     if not visited[tl[0], tl[1]]:
-    #         num_random += 1
-    #         visited[tl[0], tl[1]] = True
-    #         score = testWindow(img, svm, scaler, eye_shape, tl)[0]
-    #         scores[tl[0], tl[1]] = score
-    #         pq.put_nowait((score, tl))
+    # insert 10 random locations
+    print "Inserting 10 random locations..."
+    num_random = 0
+    while (num_random < 10):
+        tl = (np.random.randint(0, img.shape[0]-eye_shape[0]),
+              np.random.randint(0, img.shape[1]-eye_shape[1]))
+        if not visited[tl[0], tl[1]]:
+            num_random += 1
+            visited[tl[0], tl[1]] = True
+            score = testWindow(img, svm, scaler, eye_shape, tl)[0]
+            scores[tl[0], tl[1]] = score
+            pq.put_nowait((score, tl))
 
     # pick out the location with the best score
     best_score, best_tl = pq.get_nowait()
@@ -209,7 +211,6 @@ def searchForEyes(img, svm, scaler, eye_shape, locs=[]):
     # stop when there are two good matches (score < -0.5) far enough apart
     # to be from two eyes, or after a maximum loop count
     loop_cnt = 0
-    tracker = MatchTracker()
     tracker.insert(best_score, best_tl)
     while (loop_cnt < 1000 and len(tracker.getBigClusters()) < 2):
 
@@ -236,7 +237,7 @@ def searchForEyes(img, svm, scaler, eye_shape, locs=[]):
     if loop_cnt >= 1000:
         print "Did not find two good matches. Halting."
 
-
+    tracker.printClusterScores()
     bf.imshow(visited, cbar=True)
     bf.imshow(scores, cbar=True)
     return tracker.getBigClusters()
@@ -244,41 +245,48 @@ def searchForEyes(img, svm, scaler, eye_shape, locs=[]):
 class MatchTracker:
     """ Keep track of SVM matches, and do rudimentary clustering. """
 
-    def __init__(self, MAX_DIST=50, MIN_MASS=-1.5):
+    def __init__(self, MAX_DIST=50, MIN_AVGMASS=-0.1):
         self.clusters = {}
         self.MAX_DIST = MAX_DIST
-        self.MIN_MASS = MIN_MASS
+        self.MIN_AVGMASS = MIN_AVGMASS
 
     def insert(self, score, location):
         best_centroid = None
         best_dist = float("inf")
 
         # search existing clusters for best match
-        for centroid, mass in self.clusters.iteritems():
+        for centroid, stats in self.clusters.iteritems():
             d = dist(centroid, location)
             if d < best_dist:
                 best_centroid = centroid
                 best_dist = d
 
         if best_dist < self.MAX_DIST:
-            old_mass = self.clusters[best_centroid]
+            old_size = self.clusters[best_centroid]["size"]
+            old_mass = self.clusters[best_centroid]["total_mass"]
             new_mass = old_mass + score
             centroid = ((best_centroid[0]*old_mass + location[0]*score) / new_mass, 
                         (best_centroid[1]*old_mass + location[1]*score) / new_mass)
             del self.clusters[best_centroid]
-            self.clusters[centroid] = new_mass
+            self.clusters[centroid] = {"total_mass" : new_mass, "size" : old_size + 1}
 
         # start new cluster
         else:
-            self.clusters[location] = score
+            self.clusters[location] = {"total_mass" : score, "size" : 1.0}
 
     def getBigClusters(self):
         big_clusters = []
-        for centroid, mass in self.clusters.iteritems():
-            if mass < self.MIN_MASS:
+        for centroid, stats in self.clusters.iteritems():
+            if stats["total_mass"] / stats["size"] < self.MIN_AVGMASS:
                 big_clusters.append(centroid)
 
         return big_clusters
+
+    def printClusterScores(self):
+        big_clusters = self.getBigClusters()
+        for cluster in big_clusters:
+            avg_mass = self.clusters[cluster]["total_mass"] / self.clusters[cluster]["size"]
+            print str(cluster) + " : " + str(avg_mass)
 
 def center2tl(ctr, shape):
     return (ctr[0] - round(0.5*shape[0]), ctr[1] - round(0.5*shape[1]))
@@ -323,19 +331,19 @@ def jitter(patch, eye_shape):
                     [0, 0, 1]]) * tf
     
     # rotate about z
-    theta = 0.05*np.random.randn()
+    theta = 0.2*np.random.randn()
     tf = np.matrix([[np.cos(theta), -np.sin(theta), 0],
                    [np.sin(theta), np.cos(theta), 0],
                    [0, 0, 1]]) * tf
 
     # now rotate about x
-    theta = 0.05*np.random.randn()
+    theta = 0.1*np.random.randn()
     tf = np.matrix([[1, 0, 0],
                     [0, np.cos(theta), -np.sin(theta)],
                     [0, np.sin(theta), np.cos(theta)]]) * tf
 
     # now rotate about y
-    theta = 0.05*np.random.randn()
+    theta = 0.1*np.random.randn()
     tf = np.matrix([[np.cos(theta), 0, np.sin(theta)],
                    [0, 1, 0],
                    [-np.sin(theta), 0, np.cos(theta)]]) * tf
