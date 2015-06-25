@@ -80,3 +80,22 @@ def rgb2gray(img):
     b = img[:, :, 2]
 
     return 0.299*r + 0.587*g + 0.114*b
+
+def center2tl(ctr, shape):
+    """ Convert center of box to top left corner. """
+
+    return (ctr[0] - round(0.5*shape[0]), ctr[1] - round(0.5*shape[1]))
+
+def tl2center(tl, shape):
+    """ Convert top left corner of box to center. """
+
+    return (tl[0] + round(0.5*shape[0]), tl[1] + round(0.5*shape[1]))
+
+def drawRectangle(img, center, shape, color):
+    """ Draw a rectangle on the image. """
+
+    tl = center2tl(center, shape)
+    img[tl[0]:tl[0]+shape[0], tl[1]:tl[1]+1, :] = color
+    img[tl[0]:tl[0]+shape[0], tl[1]+shape[1]:tl[1]+shape[1]+1, :] = color
+    img[tl[0]:tl[0]+1, tl[1]:tl[1]+shape[1], :] = color
+    img[tl[0]:tl[0]+shape[0]+1, tl[1]:tl[1]+shape[1], :] = color

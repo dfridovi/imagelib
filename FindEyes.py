@@ -13,142 +13,140 @@ from collections import deque
 from Queue import PriorityQueue
 import sys
 
-def findEyes(img, mode="haar", train=None, eye_centers=None, eye_shape=None,
+def findEyes(img, mode="haar", show=False, haar_classifier=None,
+             training=None, eye_centers=None, eye_shape=None,
              svm=None, scaler=None, locs=[]):
     """
     Two modes:
     1. haar -- uses the OpenCV built-in cascade classifier
     2. svm -- trains an SVM using a training image and eye patches
-    """
 
-    if mode == "haar":
-        return haarEyes(img)
-    elif mode == "svm":
-        return svmEyes(img, train, eye_centers, eye_shape, svm, scaler, locs)
-    else:
-        raise Exception("Mode %s not supported." % mode)
-
-def haarEyes(img):
-    """ 
-    Adapted from http://opencv-python-tutroals.readthedocs.org/en/latest/py_tutorials/py_objdetect/py_face_detection/py_face_detection.html
-    """
-
-    haarpath = "/Users/davidfridovichkeil/anaconda/pkgs/opencv-2.4.8-np17py27_2/share/OpenCV/haarcascades/haarcascade_eye.xml"
-
-    img = (255.0 * img).astype(np.uint8)
-    eye_cascade = cv2.CascadeClassifier(haarpath)
-
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    
-    eye_centers = []
-    eyes = eye_cascade.detectMultiScale(gray)
-
-    for (ex, ey, ew, eh) in eyes:
-        cv2.rectangle(img, (ex, ey), (ex + ew, ey + eh), (0, 255, 0), 2)
-        eye_centers.append((ex + ew/2.0, ey + eh/2.0))
-
-    bf.imshow(img)
-    return eye_centers
-
-def svmEyes(img, training, eye_centers, eye_shape, 
-            svm=None, scaler=None, locs=[]):
-    """ 
-    SVM-based approach to detecting eyes. Input is as follows:
-    * img -- new image to be searched for eyes
-    * training -- old image used for generating an svm model
-    * eyes_centers -- list of eye_centers used for generating an svm
-    * eye_shape -- shape of eye patch
+    Optionally, draw a rectangle around detected eyes (show). Other
+    parameters are described below or in createSVM(), and are irrelevant 
+    for haarEyes().
     * svm -- sklearn svm model; may be provided if it exists
     * scaler -- sklearn preprocessing scaler
     * locs -- approximate centers of eyes; used to speed up search process
     """
 
-    img_gray = bf.rgb2gray(img)
+    if mode == "haar":
+        return haarEyes(img, haar_classifier)
+    elif mode == "svm":
+        if (svm is None) or (scaler is None):
+            svm, scaler = createSVM(training, eye_centers, eye_shape)
+        return searchForEyesSVM(img, svm, scaler, eye_shape, locs)
+    else:
+        raise Exception("Mode %s not supported." % mode)
 
-    if svm is None:
-        print "Building SVM classifier..."
-        training_gray = bf.rgb2gray(training)
-        eyes = []
+def haarEyes(img, haar_classifier=None):
+    """ 
+    Adapted from OpenCV online tutorials.
+    """
 
-        for ctr in eye_centers:
-            eye_gray = extractTL(training_gray, 
-                                 center2tl(ctr, eye_shape), eye_shape)
-            eyes.append(eye_gray)
+    if haar_classifier is not None:
+        haarpath = ("/Users/davidfridovichkeil/anaconda/pkgs/" +
+                    "opencv-2.4.8-np17py27_2/" +
+                    "share/OpenCV/haarcascades/haarcascade_eye.xml")
+        haar_classifier = cv2.CascadeClassifier(haarpath)
+    
+    gray = (255.0 * bf.rgb2gray(img)).astype(np.uint8)
 
-        # negative exemplars from rest of image
-        print "Constructing negative exemplars..."
-        negs = []
-        num_negs = 0
-        while num_negs < 1000:
-            tl = (np.random.randint(0, img.shape[0]), 
-                  np.random.randint(0, img.shape[1]))
-            if (isValid(img, tl, eye_shape) and not
-                overlapsEye(tl, eye_centers, eye_shape)):
-                num_negs += 1
-                negs.append(extractTL(training_gray, tl, eye_shape))
+    eye_centers = []
+    eyes = haar_classifier.detectMultiScale(gray)
 
-        # create more positive exemplars by applying random small 3D rotations
-        print "Constructing positive exemplars..."
-        num_eyes = len(eyes)
-        patches = deque([eye2patch(training_gray, 
-                                   center2tl(ctr, eye_shape), 
-                                   eye_shape) for ctr in eye_centers])
-                        
-        while num_eyes < 1000:
-            patch = patches.popleft()
-            jittered = jitter(patch, eye_shape)
-            patches.append(patch)
-            eyes.append(patch2eye(jittered, eye_shape))
-            num_eyes += 1
+    for (ex, ey, ew, eh) in eyes:
+#        cv2.rectangle(img, (ex, ey), (ex + ew, ey + eh), (0, 255, 0), 2)
+        eye_centers.append((ey + eh/2.0, ex + ew/2.0))
 
-        # compute HOG for eyes and negs
-        eyes_hog = []
-        for eye in eyes:
-            eyes_hog.append(feature.hog(eye))
+#    bf.imshow(img)
+    return eye_centers
 
-        negs_hog = []
-        for neg in negs:
-            negs_hog.append(feature.hog(neg))
+def createSVM(training, eye_centers, eye_shape):
+    """ 
+    Create SVM model for eye detection. Inputs are as follows:
+    * training -- old image used for generating an svm model
+    * eyes_centers -- list of eye_centers used for generating an svm
+    * eye_shape -- shape of eye patch
+    """
 
-        # set up training dataset (eyes = -1, negs = +1)
-        training_set = np.vstack((negs_hog, eyes_hog))
+    print "Building SVM classifier..."
+    training_gray = bf.rgb2gray(training)
+    eyes = []
 
-        training_labels = np.ones(num_eyes + num_negs)
-        training_labels[num_negs:] = -1
-        
-        scaler = preprocessing.StandardScaler().fit(training_set)
-        training_set = scaler.transform(training_set)
+    for ctr in eye_centers:
+        eye_gray = extractTL(training_gray, 
+                             bf.center2tl(ctr, eye_shape), eye_shape)
+        eyes.append(eye_gray)
 
-        # train SVM
-        print "Training SVM..."
-        weights = {-1 : 1.0, 1 : 1.0}
-        svm = SVM.SVC(C=5.0, kernel="linear", class_weight=weights)
-        svm.fit(training_set, training_labels)
+    # negative exemplars from rest of image
+    print "Constructing negative exemplars..."
+    negs = []
+    num_negs = 0
+    while num_negs < 1000:
+        tl = (np.random.randint(0, training_gray.shape[0]), 
+              np.random.randint(0, training_gray.shape[1]))
+        if (isValid(training_gray, tl, eye_shape) and not
+            overlapsEye(tl, eye_centers, eye_shape)):
+            num_negs += 1
+            negs.append(extractTL(training_gray, tl, eye_shape))
 
-    # find best matches, given svm and img_gray
-    detected = searchForEyes(img_gray, svm, scaler, eye_shape, locs)
-    centers = []
-    for tl in detected:
-        centers.append(tl2center(tl, eye_shape))
+    # create more positive exemplars by applying random small 3D rotations
+    print "Constructing positive exemplars..."
+    num_eyes = len(eyes)
+    patches = deque([eye2patch(training_gray, 
+                               bf.center2tl(ctr, eye_shape), 
+                               eye_shape) for ctr in eye_centers])
+                    
+    while num_eyes < 1000:
+        patch = patches.popleft()
+        jittered = jitter(patch, eye_shape)
+        patches.append(patch)
+        eyes.append(patch2eye(jittered, eye_shape))
+        num_eyes += 1
 
-    return centers
+    # compute HOG for eyes and negs
+    eyes_hog = []
+    for eye in eyes:
+        eyes_hog.append(feature.hog(eye))
 
-# Helper functions for svmEyes()
-def searchForEyes(img, svm, scaler, eye_shape, locs=[]):
+    negs_hog = []
+    for neg in negs:
+        negs_hog.append(feature.hog(neg))
+
+    # set up training dataset (eyes = -1, negs = +1)
+    training_set = np.vstack((negs_hog, eyes_hog))
+
+    training_labels = np.ones(num_eyes + num_negs)
+    training_labels[num_negs:] = -1
+    
+    scaler = preprocessing.StandardScaler().fit(training_set)
+    training_set = scaler.transform(training_set)
+
+    # train SVM
+    print "Training SVM..."
+    weights = {-1 : 1.0, 1 : 1.0}
+    svm = SVM.SVC(C=5.0, kernel="linear", class_weight=weights)
+    svm.fit(training_set, training_labels)
+
+    return svm, scaler
+
+def searchForEyesSVM(img, svm, scaler, eye_shape, locs=[]):
     """ Explore image starting at locs, visiting as few pixels as possible. """
     
+    gray = bf.rgb2gray(img)
+
     pq = PriorityQueue()
     tracker = MatchTracker()
-    visited = np.zeros((img.shape[0]-eye_shape[0],
-                        img.shape[1]-eye_shape[1]), dtype=np.bool)
+    visited = np.zeros((gray.shape[0]-eye_shape[0],
+                        gray.shape[1]-eye_shape[1]), dtype=np.bool)
     scores = np.zeros(visited.shape, dtype=np.float)
 
     # insert provided locations and 100 random locations around each one
-    print "Seeding initial locations..."
+#    print "Seeding initial locations..."
     for loc in locs:
-        tl = center2tl(loc, eye_shape)
+        tl = bf.center2tl(loc, eye_shape)
         visited[loc[0], loc[1]] = True
-        score = testWindow(img, svm, scaler, eye_shape, tl)[0]
+        score = testWindow(gray, svm, scaler, eye_shape, tl)[0]
         scores[loc[0], loc[1]] = score
         pq.put_nowait((score, tl))
 
@@ -157,10 +155,10 @@ def searchForEyes(img, svm, scaler, eye_shape, locs=[]):
         while (num_random < 50):
             tl = (loc[0] + np.random.randint(-25, 25), 
                   loc[1] + np.random.randint(-25, 25))
-            if isValid(img, tl, eye_shape) and not visited[tl[0], tl[1]]:
+            if isValid(gray, tl, eye_shape) and not visited[tl[0], tl[1]]:
                 num_random += 1
                 visited[tl[0], tl[1]] = True
-                score = testWindow(img, svm, scaler, eye_shape, tl)[0]
+                score = testWindow(gray, svm, scaler, eye_shape, tl)[0]
                 scores[tl[0], tl[1]] = score
                 pq.put_nowait((score, tl))
 
@@ -168,24 +166,24 @@ def searchForEyes(img, svm, scaler, eye_shape, locs=[]):
         while (num_random < 100):
             tl = (loc[0] + np.random.randint(-50, 50), 
                   loc[1] + np.random.randint(-50, 50))
-            if isValid(img, tl, eye_shape) and not visited[tl[0], tl[1]]:
+            if isValid(gray, tl, eye_shape) and not visited[tl[0], tl[1]]:
                 num_random += 1
                 visited[tl[0], tl[1]] = True
-                score = testWindow(img, svm, scaler, eye_shape, tl)[0]
+                score = testWindow(gray, svm, scaler, eye_shape, tl)[0]
                 scores[tl[0], tl[1]] = score
                 pq.put_nowait((score, tl))
 
                 
     # insert 10 random locations
-    print "Inserting 10 random locations..."
+#    print "Inserting 10 random locations..."
     num_random = 0
     while (num_random < 10):
-        tl = (np.random.randint(0, img.shape[0]-eye_shape[0]),
-              np.random.randint(0, img.shape[1]-eye_shape[1]))
+        tl = (np.random.randint(0, gray.shape[0]-eye_shape[0]),
+              np.random.randint(0, gray.shape[1]-eye_shape[1]))
         if not visited[tl[0], tl[1]]:
             num_random += 1
             visited[tl[0], tl[1]] = True
-            score = testWindow(img, svm, scaler, eye_shape, tl)[0]
+            score = testWindow(gray, svm, scaler, eye_shape, tl)[0]
             scores[tl[0], tl[1]] = score
             pq.put_nowait((score, tl))
 
@@ -194,15 +192,15 @@ def searchForEyes(img, svm, scaler, eye_shape, locs=[]):
     
     # add 50 more random locations until best score is a match
     while best_score >= 0:
-        print "Adding 50 more random locations..."
+#        print "Adding 50 more random locations..."
         num_random = 0
         while (num_random < 50):
-            tl = (np.random.randint(0, img.shape[0]-eye_shape[0]),
-                  np.random.randint(0, img.shape[1]-eye_shape[1]))
+            tl = (np.random.randint(0, gray.shape[0]-eye_shape[0]),
+                  np.random.randint(0, gray.shape[1]-eye_shape[1]))
             if not visited[tl[0], tl[1]]:
                 num_random += 1
                 visited[tl[0], tl[1]] = True
-                score = testWindow(img, svm, scaler, eye_shape, tl)[0]
+                score = testWindow(gray, svm, scaler, eye_shape, tl)[0]
                 scores[tl[0], tl[1]] = score
                 pq.put_nowait((score, tl))
         
@@ -219,9 +217,9 @@ def searchForEyes(img, svm, scaler, eye_shape, locs=[]):
                    (best_tl[0]+1, best_tl[1]), 
                    (best_tl[0], best_tl[1]-1), 
                    (best_tl[0], best_tl[1]+1)]:
-            if isValid(img, tl, eye_shape) and not visited[tl[0], tl[1]]:
+            if isValid(gray, tl, eye_shape) and not visited[tl[0], tl[1]]:
                 visited[tl[0], tl[1]] = True
-                score = testWindow(img, svm, scaler, eye_shape, tl)[0]
+                score = testWindow(gray, svm, scaler, eye_shape, tl)[0]
                 scores[tl[0], tl[1]] = score
                 pq.put_nowait((score, tl))
 
@@ -230,17 +228,26 @@ def searchForEyes(img, svm, scaler, eye_shape, locs=[]):
         if best_score < 0:
             tracker.insert(best_score, best_tl)
 
-        print "Current loop count: " + str(loop_cnt)
-        print "Current cluster count: " + str(len(tracker.getBigClusters()))
+#        print "Current loop count: " + str(loop_cnt)
+#        print "Current cluster count: " + str(len(tracker.getBigClusters()))
         loop_cnt += 1
 
     if loop_cnt >= 1000:
         print "Did not find two good matches. Halting."
+        return tracker.getBigClusters()
 
-    tracker.printClusterScores()
-    bf.imshow(visited, cbar=True)
-    bf.imshow(scores, cbar=True)
-    return tracker.getBigClusters()
+#    tracker.printClusterScores()
+#    bf.imshow(visited, cbar=True)
+#    bf.imshow(scores, cbar=True)
+
+    # convert to centers
+    detected = tracker.getBigClusters()
+    centers = []
+    for tl in detected:
+        centers.append(bf.tl2center(tl, eye_shape))
+
+    return centers
+
     
 class MatchTracker:
     """ Keep track of SVM matches, and do rudimentary clustering. """
@@ -288,18 +295,12 @@ class MatchTracker:
             avg_mass = self.clusters[cluster]["total_mass"] / self.clusters[cluster]["size"]
             print str(cluster) + " : " + str(avg_mass)
 
-def center2tl(ctr, shape):
-    return (ctr[0] - round(0.5*shape[0]), ctr[1] - round(0.5*shape[1]))
-
-def tl2center(tl, shape):
-    return (tl[0] + round(0.5*shape[0]), tl[1] + round(0.5*shape[1]))
-
 def dist(coords1, coords2):
     return np.sqrt((coords1[0]-coords2[0])**2 + (coords1[1]-coords2[1])**2)
 
 def overlapsEye(tl, eye_centers, eye_shape):
     for ctr in eye_centers:
-        eye_tl = center2tl(ctr, eye_shape)
+        eye_tl = bf.center2tl(ctr, eye_shape)
         if not (((tl[0] < eye_tl[0]-eye_shape[0]) or 
                  (tl[0] > eye_tl[0]+eye_shape[0])) and
                 ((tl[1] < eye_tl[1]-eye_shape[1]) or 
