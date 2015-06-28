@@ -124,7 +124,7 @@ def createSVM(training, eye_centers, eye_shape):
 
     # train SVM
     print "Training SVM..."
-    weights = {-1 : 1.0, 1 : 1.0}
+    weights = {-1 : 10.0, 1 : 1.0}
     svm = SVM.SVC(C=1.0, kernel="linear", class_weight=weights)
     svm.fit(training_set, training_labels)
 
@@ -142,66 +142,48 @@ def searchForEyesSVM(img, svm, scaler, eye_shape, locs=[]):
     scores = np.zeros(visited.shape, dtype=np.float)
 
     # distribution parameters
-    loc_cov = 1600 * np.array([[1, 0],
-                               [0, 2.5]])
-    blind_cov = 120000 * np.array([[1, 0],
-                                   [0, 2.5]])
-    blind_mean = (gray.shape[0] / 2, gray.shape[1] / 2)
+    loc_halfwidth = 50
+    loc_halfheight = 40
+    loc_skip = 3
+    blind_skip = 11
 
     # insert provided locations and 100 random locations around each one
 #    print "Seeding initial locations..."
     for loc in locs:
         tl = bf.center2tl(loc, eye_shape)
-        visited[loc[0], loc[1]] = True
+        visited[tl[0], tl[1]] = True
         score = testWindow(gray, svm, scaler, eye_shape, tl)[0]
-        scores[loc[0], loc[1]] = score
+        scores[tl[0], tl[1]] = score
         pq.put_nowait((score, tl))
 
+        for i in range(-loc_halfheight, loc_halfheight, loc_skip):
+            for j in range(-loc_halfwidth, loc_halfwidth, loc_skip):
+                test = (tl[0] + i, tl[1] + j)
+                if isValid(gray, test, eye_shape) and not visited[test[0], test[1]]:
+                    visited[test[0], test[1]] = True
+                    score = testWindow(gray, svm, scaler, eye_shape, test)[0]
+                    scores[test[0], test[1]] = score
+                    pq.put_nowait((score, test))
 
-        num_random = 0
-        while (num_random < 100):
-            offset = np.random.multivariate_normal(loc, loc_cov)
-            tl = (loc[0] + offset[0],
-                  loc[1] + offset[1])
-            if isValid(gray, tl, eye_shape) and not visited[tl[0], tl[1]]:
-                num_random += 1
-                visited[tl[0], tl[1]] = True
-                score = testWindow(gray, svm, scaler, eye_shape, tl)[0]
-                scores[tl[0], tl[1]] = score
-                pq.put_nowait((score, tl))
-
-                
-    # insert 10 random locations
-#    print "Inserting 10 random locations..."
-    num_random = 0
-    while (num_random < 10):
-        offset = np.random.multivariate_normal(blind_mean, blind_cov)
-        tl = (loc[0] + offset[0],
-              loc[1] + offset[1])
-        if isValid(gray, tl, eye_shape) and not visited[tl[0], tl[1]]:
-            num_random += 1
-            visited[tl[0], tl[1]] = True
-            score = testWindow(gray, svm, scaler, eye_shape, tl)[0]
-            scores[tl[0], tl[1]] = score
-            pq.put_nowait((score, tl))
 
     # pick out the location with the best score
-    best_score, best_tl = pq.get_nowait()
-    
-    # add 50 more random locations until best score is a match
-    while best_score >= 0:
-#        print "Adding 50 more random locations..."
-        num_random = 0
-        while (num_random < 50):
-            offset = np.random.multivariate_normal(blind_mean, blind_cov)
-            tl = (loc[0] + offset[0],
-                  loc[1] + offset[1])
-            if isValid(gray, tl, eye_shape) and not visited[tl[0], tl[1]]:
-                num_random += 1
-                visited[tl[0], tl[1]] = True
-                score = testWindow(gray, svm, scaler, eye_shape, tl)[0]
-                scores[tl[0], tl[1]] = score
-                pq.put_nowait((score, tl))
+    extra_testing = False
+    if len(locs) > 0:
+         best_score, best_tl = pq.get_nowait()
+         if best_score > 0:
+            extra_testing = True
+    else:
+        extra_testing = True
+
+    if extra_testing:
+        for i in range(300, 500, blind_skip):
+            for j in range(300, 800, blind_skip):
+                test = (i, j)
+                if isValid(gray, test, eye_shape) and not visited[test[0], test[1]]:
+                    visited[test[0], test[1]] = True
+                    score = testWindow(gray, svm, scaler, eye_shape, test)[0]
+                    scores[test[0], test[1]] = score
+                    pq.put_nowait((score, test))
         
         best_score, best_tl = pq.get_nowait()
 
@@ -209,7 +191,7 @@ def searchForEyesSVM(img, svm, scaler, eye_shape, locs=[]):
     # to be from two eyes, or after a maximum loop count
     loop_cnt = 0
     tracker.insert(best_score, best_tl)
-    while (loop_cnt < 1000 and len(tracker.getBigClusters()) < 2):
+    while (loop_cnt < 100 and len(tracker.getBigClusters()) < 2):
 
         # look at unvisited pixels adjacent to current best_tl
         for tl in [(best_tl[0]-1, best_tl[1]), 
@@ -235,7 +217,8 @@ def searchForEyesSVM(img, svm, scaler, eye_shape, locs=[]):
         print "Did not find two good matches. Halting."
         return tracker.getBigClusters()
 
-#    tracker.printClusterScores()
+    print ""
+    tracker.printClusterScores()
 #    bf.imshow(visited, cbar=True)
 #    bf.imshow(scores, cbar=True)
 
@@ -257,6 +240,11 @@ class MatchTracker:
         self.MIN_AVGMASS = MIN_AVGMASS
 
     def insert(self, score, location):
+
+        # do nothing if score > 0
+        if score > 0:
+            return
+
         best_centroid = None
         best_dist = float("inf")
 

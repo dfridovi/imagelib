@@ -58,7 +58,7 @@ try:
 		img[:, :, 2] = frame[:, :, 0]
 
 		found = searchForEyesSVM(img=img, svm=svm, scaler=scaler, 
-								 eye_shape=eye_shape, locs=eyes)
+								 eye_shape=eye_shape, locs=[])
 
 		if len(found) == 2:
 			eyes = found
@@ -67,6 +67,7 @@ try:
 			for eye in eyes:
 				bf.drawRectangle(frame, eye, eye_shape, (0, 1, 0))
 
+		eyes = found
 		cv2.imshow("camera", frame)
 
 		if cv2.waitKey(1) & 0xFF == ord("q"):
