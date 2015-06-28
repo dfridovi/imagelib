@@ -9,6 +9,7 @@ import BasicFunctions as bf
 from Sharpening import sharpen
 from Blurring import blur
 from FindEyes import findEyes, searchForEyesSVM, createSVM
+import time
 
 # import image
 #img = bf.imread("lotr.JPG")
@@ -45,29 +46,37 @@ eyes = [eye1_ctr, eye2_ctr]
 svm, scaler = createSVM(training=img, eye_centers=eyes, eye_shape=eye_shape) 
 
 cap = cv2.VideoCapture(0)
+start = time.time()
+cnt = 0
 
-while True:
-	ret, frame = cap.read()
-	img = np.zeros(frame.shape)
-	img[:, :, 0] = frame[:, :, 2]
-	img[:, :, 1] = frame[:, :, 1]
-	img[:, :, 2] = frame[:, :, 0]
+try:
+	while True:
+		ret, frame = cap.read()
+		img = np.zeros(frame.shape)
+		img[:, :, 0] = frame[:, :, 2]
+		img[:, :, 1] = frame[:, :, 1]
+		img[:, :, 2] = frame[:, :, 0]
 
-	found = searchForEyesSVM(img=img, svm=svm, scaler=scaler, eye_shape=eye_shape, locs=eyes)
+		found = searchForEyesSVM(img=img, svm=svm, scaler=scaler, 
+								 eye_shape=eye_shape, locs=eyes)
 
-	if len(found) == 2:
-		eyes = found
+		if len(found) == 2:
+			eyes = found
 
-		# draw rectangles
-		for eye in eyes:
-			bf.drawRectangle(frame, eye, eye_shape, (0, 1, 0))
+			# draw rectangles
+			for eye in eyes:
+				bf.drawRectangle(frame, eye, eye_shape, (0, 1, 0))
 
-	cv2.imshow("camera", frame)
+		cv2.imshow("camera", frame)
 
-	if cv2.waitKey(1) & 0xFF == ord("q"):
-		break
+		if cv2.waitKey(1) & 0xFF == ord("q"):
+			break
 
+		cnt += 1
 
 # When everything done, release the capture
-cap.release()
-cv2.destroyAllWindows()
+except KeyboardInterrupt:
+	cap.release()
+	cv2.destroyAllWindows()
+
+	print "Average seconds per frame: " + str((time.time() - start) / cnt)

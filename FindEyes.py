@@ -125,7 +125,7 @@ def createSVM(training, eye_centers, eye_shape):
     # train SVM
     print "Training SVM..."
     weights = {-1 : 1.0, 1 : 1.0}
-    svm = SVM.SVC(C=5.0, kernel="linear", class_weight=weights)
+    svm = SVM.SVC(C=1.0, kernel="linear", class_weight=weights)
     svm.fit(training_set, training_labels)
 
     return svm, scaler
@@ -141,6 +141,13 @@ def searchForEyesSVM(img, svm, scaler, eye_shape, locs=[]):
                         gray.shape[1]-eye_shape[1]), dtype=np.bool)
     scores = np.zeros(visited.shape, dtype=np.float)
 
+    # distribution parameters
+    loc_cov = 1600 * np.array([[1, 0],
+                               [0, 2.5]])
+    blind_cov = 120000 * np.array([[1, 0],
+                                   [0, 2.5]])
+    blind_mean = (gray.shape[0] / 2, gray.shape[1] / 2)
+
     # insert provided locations and 100 random locations around each one
 #    print "Seeding initial locations..."
     for loc in locs:
@@ -152,20 +159,10 @@ def searchForEyesSVM(img, svm, scaler, eye_shape, locs=[]):
 
 
         num_random = 0
-        while (num_random < 50):
-            tl = (loc[0] + np.random.randint(-25, 25), 
-                  loc[1] + np.random.randint(-25, 25))
-            if isValid(gray, tl, eye_shape) and not visited[tl[0], tl[1]]:
-                num_random += 1
-                visited[tl[0], tl[1]] = True
-                score = testWindow(gray, svm, scaler, eye_shape, tl)[0]
-                scores[tl[0], tl[1]] = score
-                pq.put_nowait((score, tl))
-
-        num_random = 0
         while (num_random < 100):
-            tl = (loc[0] + np.random.randint(-50, 50), 
-                  loc[1] + np.random.randint(-50, 50))
+            offset = np.random.multivariate_normal(loc, loc_cov)
+            tl = (loc[0] + offset[0],
+                  loc[1] + offset[1])
             if isValid(gray, tl, eye_shape) and not visited[tl[0], tl[1]]:
                 num_random += 1
                 visited[tl[0], tl[1]] = True
@@ -178,9 +175,10 @@ def searchForEyesSVM(img, svm, scaler, eye_shape, locs=[]):
 #    print "Inserting 10 random locations..."
     num_random = 0
     while (num_random < 10):
-        tl = (np.random.randint(0, gray.shape[0]-eye_shape[0]),
-              np.random.randint(0, gray.shape[1]-eye_shape[1]))
-        if not visited[tl[0], tl[1]]:
+        offset = np.random.multivariate_normal(blind_mean, blind_cov)
+        tl = (loc[0] + offset[0],
+              loc[1] + offset[1])
+        if isValid(gray, tl, eye_shape) and not visited[tl[0], tl[1]]:
             num_random += 1
             visited[tl[0], tl[1]] = True
             score = testWindow(gray, svm, scaler, eye_shape, tl)[0]
@@ -195,9 +193,10 @@ def searchForEyesSVM(img, svm, scaler, eye_shape, locs=[]):
 #        print "Adding 50 more random locations..."
         num_random = 0
         while (num_random < 50):
-            tl = (np.random.randint(0, gray.shape[0]-eye_shape[0]),
-                  np.random.randint(0, gray.shape[1]-eye_shape[1]))
-            if not visited[tl[0], tl[1]]:
+            offset = np.random.multivariate_normal(blind_mean, blind_cov)
+            tl = (loc[0] + offset[0],
+                  loc[1] + offset[1])
+            if isValid(gray, tl, eye_shape) and not visited[tl[0], tl[1]]:
                 num_random += 1
                 visited[tl[0], tl[1]] = True
                 score = testWindow(gray, svm, scaler, eye_shape, tl)[0]
@@ -275,7 +274,8 @@ class MatchTracker:
             centroid = ((best_centroid[0]*old_mass + location[0]*score) / new_mass, 
                         (best_centroid[1]*old_mass + location[1]*score) / new_mass)
             del self.clusters[best_centroid]
-            self.clusters[centroid] = {"total_mass" : new_mass, "size" : old_size + 1}
+            self.clusters[centroid] = {"total_mass" : new_mass, 
+                                       "size" : old_size + 1}
 
         # start new cluster
         else:
@@ -292,7 +292,8 @@ class MatchTracker:
     def printClusterScores(self):
         big_clusters = self.getBigClusters()
         for cluster in big_clusters:
-            avg_mass = self.clusters[cluster]["total_mass"] / self.clusters[cluster]["size"]
+            avg_mass = (self.clusters[cluster]["total_mass"] / 
+                        self.clusters[cluster]["size"])
             print str(cluster) + " : " + str(avg_mass)
 
 def dist(coords1, coords2):
@@ -332,19 +333,19 @@ def jitter(patch, eye_shape):
                     [0, 0, 1]]) * tf
     
     # rotate about z
-    theta = 0.2*np.random.randn()
+    theta = 0.1*np.random.randn()
     tf = np.matrix([[np.cos(theta), -np.sin(theta), 0],
                    [np.sin(theta), np.cos(theta), 0],
                    [0, 0, 1]]) * tf
 
     # now rotate about x
-    theta = 0.1*np.random.randn()
+    theta = 0.05*np.random.randn()
     tf = np.matrix([[1, 0, 0],
                     [0, np.cos(theta), -np.sin(theta)],
                     [0, np.sin(theta), np.cos(theta)]]) * tf
 
     # now rotate about y
-    theta = 0.1*np.random.randn()
+    theta = 0.05*np.random.randn()
     tf = np.matrix([[np.cos(theta), 0, np.sin(theta)],
                    [0, 1, 0],
                    [-np.sin(theta), 0, np.cos(theta)]]) * tf
