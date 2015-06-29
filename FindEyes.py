@@ -135,115 +135,89 @@ def searchForEyesSVM(img, svm, scaler, eye_shape, locs=[]):
     
     gray = bf.rgb2gray(img)
 
-    pq = PriorityQueue()
     tracker = MatchTracker()
     visited = np.zeros((gray.shape[0]-eye_shape[0],
                         gray.shape[1]-eye_shape[1]), dtype=np.bool)
-    scores = np.zeros(visited.shape, dtype=np.float)
 
     # distribution parameters
     loc_halfwidth = 50
     loc_halfheight = 40
-    loc_skip = 3
-    blind_skip = 11
+    loc_skip = 7
+    blind_skip = 25
 
-    # insert provided locations and 100 random locations around each one
-#    print "Seeding initial locations..."
+    # insert provided locations and begin exploration around each one
     for loc in locs:
         tl = bf.center2tl(loc, eye_shape)
-        visited[tl[0], tl[1]] = True
-        score = testWindow(gray, svm, scaler, eye_shape, tl)[0]
-        scores[tl[0], tl[1]] = score
-        pq.put_nowait((score, tl))
+        greedySearch(gray, svm, scaler, eye_shape, visited, tracker, tl)
 
         for i in range(-loc_halfheight, loc_halfheight, loc_skip):
             for j in range(-loc_halfwidth, loc_halfwidth, loc_skip):
                 test = (tl[0] + i, tl[1] + j)
-                if isValid(gray, test, eye_shape) and not visited[test[0], test[1]]:
-                    visited[test[0], test[1]] = True
-                    score = testWindow(gray, svm, scaler, eye_shape, test)[0]
-                    scores[test[0], test[1]] = score
-                    pq.put_nowait((score, test))
+                greedySearch(gray, svm, scaler, eye_shape, visited, tracker, test)
 
+                # terminate if two clusters
+                if tracker.isDone():
+                    tracker.printClusterScores()
+                    return tls2ctrs(tracker.getBigClusters(), eye_shape)               
 
-    # pick out the location with the best score
-    extra_testing = False
-    if len(locs) > 0:
-         best_score, best_tl = pq.get_nowait()
-         if best_score > 0:
-            extra_testing = True
-    else:
-        extra_testing = True
+    # if needed, repeat above search technique, but with broader scope
+    for i in range(300, 500, blind_skip):
+        for j in range(300, 800, blind_skip):
+            test = (i, j)
+            greedySearch(gray, svm, scaler, eye_shape, visited, tracker, test)
 
-    if extra_testing:
-        for i in range(300, 500, blind_skip):
-            for j in range(300, 800, blind_skip):
-                test = (i, j)
-                if isValid(gray, test, eye_shape) and not visited[test[0], test[1]]:
-                    visited[test[0], test[1]] = True
-                    score = testWindow(gray, svm, scaler, eye_shape, test)[0]
-                    scores[test[0], test[1]] = score
-                    pq.put_nowait((score, test))
-        
-        best_score, best_tl = pq.get_nowait()
+            # terminate if two clusters
+            if tracker.isDone():
+                tracker.printClusterScores()
+                return tls2ctrs(tracker.getBigClusters(), eye_shape)   
 
-    # stop when there are two good matches (score < -0.5) far enough apart
-    # to be from two eyes, or after a maximum loop count
-    loop_cnt = 0
-    tracker.insert(best_score, best_tl)
-    while (loop_cnt < 100 and len(tracker.getBigClusters()) < 2):
-
-        # look at unvisited pixels adjacent to current best_tl
-        for tl in [(best_tl[0]-1, best_tl[1]), 
-                   (best_tl[0]+1, best_tl[1]), 
-                   (best_tl[0], best_tl[1]-1), 
-                   (best_tl[0], best_tl[1]+1)]:
-            if isValid(gray, tl, eye_shape) and not visited[tl[0], tl[1]]:
-                visited[tl[0], tl[1]] = True
-                score = testWindow(gray, svm, scaler, eye_shape, tl)[0]
-                scores[tl[0], tl[1]] = score
-                pq.put_nowait((score, tl))
-
-        # get new best and update
-        best_score, best_tl = pq.get_nowait()
-        if best_score < 0:
-            tracker.insert(best_score, best_tl)
-
-#        print "Current loop count: " + str(loop_cnt)
-#        print "Current cluster count: " + str(len(tracker.getBigClusters()))
-        loop_cnt += 1
-
-    if loop_cnt >= 1000:
-        print "Did not find two good matches. Halting."
-        return tracker.getBigClusters()
-
-    print ""
+    print "Did not find two good matches."
     tracker.printClusterScores()
-#    bf.imshow(visited, cbar=True)
-#    bf.imshow(scores, cbar=True)
+    return tls2ctrs(tracker.getBigClusters(), eye_shape)
 
-    # convert to centers
-    detected = tracker.getBigClusters()
-    centers = []
-    for tl in detected:
-        centers.append(bf.tl2center(tl, eye_shape))
 
-    return centers
+def greedySearch(gray, svm, scaler, eye_shape, visited, tracker, tl):
+    """ Greedy search algorithm, seeded at tl. """
 
-    
+    # only proceed if valid and not visited
+    if (not isValid(gray, tl, eye_shape)) or visited[tl[0], tl[1]]:
+        return
+
+    pq = PriorityQueue()
+
+    # handle this point
+    visited[tl[0], tl[1]] = True
+    score = testWindow(gray, svm, scaler, eye_shape, tl)[0]
+
+    if score <= 0:
+        pq.put_nowait((score, tl))
+        tracker.insert(score, tl)
+
+    # explore
+    while not pq.empty():
+        best_score, best_tl = pq.get_nowait()
+
+        for test in [(best_tl[0]-1, best_tl[1]), 
+                     (best_tl[0]+1, best_tl[1]), 
+                     (best_tl[0], best_tl[1]-1), 
+                     (best_tl[0], best_tl[1]+1)]:
+            if isValid(gray, test, eye_shape) and not visited[test[0], test[1]]:
+                visited[test[0], test[1]] = True
+                score = testWindow(gray, svm, scaler, eye_shape, test)[0]
+
+                if score <= 0:
+                    pq.put_nowait((score, test))
+                    tracker.insert(score, test)
+
 class MatchTracker:
     """ Keep track of SVM matches, and do rudimentary clustering. """
 
-    def __init__(self, MAX_DIST=50, MIN_AVGMASS=-0.1):
+    def __init__(self, MAX_DIST=15, MIN_AVGMASS=-0.3):
         self.clusters = {}
         self.MAX_DIST = MAX_DIST
         self.MIN_AVGMASS = MIN_AVGMASS
 
     def insert(self, score, location):
-
-        # do nothing if score > 0
-        if score > 0:
-            return
 
         best_centroid = None
         best_dist = float("inf")
@@ -284,8 +258,20 @@ class MatchTracker:
                         self.clusters[cluster]["size"])
             print str(cluster) + " : " + str(avg_mass)
 
+    def isDone(self):
+        if len(self.getBigClusters()) < 2:
+            return False
+        return True
+
 def dist(coords1, coords2):
     return np.sqrt((coords1[0]-coords2[0])**2 + (coords1[1]-coords2[1])**2)
+
+def tls2ctrs(tls, eye_shape):
+    ctrs = []
+    for tl in tls:
+        ctrs.append(bf.tl2center(tl, eye_shape))
+
+    return ctrs
 
 def overlapsEye(tl, eye_centers, eye_shape):
     for ctr in eye_centers:

@@ -5,6 +5,7 @@ A set of basic functions for use in this library.
 import numpy as np
 import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
+from scipy.signal import convolve2d
 
 def imread(imfile):
     """ Read image from file and normalize. """
@@ -98,4 +99,11 @@ def drawRectangle(img, center, shape, color):
     img[tl[0]:tl[0]+shape[0], tl[1]:tl[1]+1, :] = color
     img[tl[0]:tl[0]+shape[0], tl[1]+shape[1]:tl[1]+shape[1]+1, :] = color
     img[tl[0]:tl[0]+1, tl[1]:tl[1]+shape[1], :] = color
-    img[tl[0]:tl[0]+shape[0]+1, tl[1]:tl[1]+shape[1], :] = color
+    img[tl[0]+shape[0]:tl[0]+shape[0]+1, tl[1]:tl[1]+shape[1], :] = color
+
+def hog(img, orientations=9, pix_per_cell=(8, 8), 
+        cells_per_block=(3, 3), normalise=True):
+    """ 
+    Compute histogram of oriented gradients for the given image. Default is to do
+    block-level normalization 
+    """
