@@ -85,12 +85,22 @@ def rgb2gray(img):
 def center2tl(ctr, shape):
     """ Convert center of box to top left corner. """
 
-    return (ctr[0] - round(0.5*shape[0]), ctr[1] - round(0.5*shape[1]))
+    return (int(ctr[0] - round(0.5*shape[0])), int(ctr[1] - round(0.5*shape[1])))
 
 def tl2center(tl, shape):
     """ Convert top left corner of box to center. """
 
-    return (tl[0] + round(0.5*shape[0]), tl[1] + round(0.5*shape[1]))
+    return (int(tl[0] + round(0.5*shape[0])), int(tl[1] + round(0.5*shape[1])))
+
+def px2cell(px, cell_shape=(8, 8)):
+    """ Convert pixel index to cell index. """
+
+    return (int(px[0] / cell_shape[0]), int(px[1] / cell_shape[1]))
+
+def cell2px(cell, cell_shape=(8, 8)):
+    """ Convert cell index to pixel index. """
+
+    return (int(cell[0] * cell_shape[0]), int(cell[1] * cell_shape[1]))
 
 def drawRectangle(img, center, shape, color):
     """ Draw a rectangle on the image. """
@@ -149,4 +159,6 @@ def getHog(img, orientations=9, cell_shape=(8, 8), normalize=True, flatten=True)
     return hists_out
 
 def normalizeHog(hog):
+    """ Divide each element of HOG by the total energy. """
+
     return hog / (np.sqrt(hog.sum()**2 + 1.0e-5)

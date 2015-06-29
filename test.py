@@ -38,7 +38,7 @@ img = bf.imread("me.jpg")
 # test video eye detection
 eye1_tl = (348, 409)
 eye2_tl = (353, 515)
-eye_shape = (24, 46)
+eye_shape = (24, 48)
 eye1_ctr = bf.tl2center(eye1_tl, eye_shape)
 eye2_ctr = bf.tl2center(eye2_tl, eye_shape)
 eyes = [eye1_ctr, eye2_ctr]

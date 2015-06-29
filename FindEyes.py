@@ -137,47 +137,48 @@ def searchForEyesSVM(img, svm, scaler, eye_shape, locs=[]):
 
     hog = bf.getHog(gray, normalize=False, flatten=False)
     eye_cells = (eye_shape[0] / 8, eye_shape[1] / 8)
-    visited = np.zeros((gray.shape[0]-eye_cells[0],
-                        gray.shape[1]-eye_cells[1]), dtype=np.bool)
+    visited = np.zeros((hog.shape[0]-eye_cells[0],
+                        hog.shape[1]-eye_cells[1]), dtype=np.bool)
 
     # distribution parameters
     loc_halfwidth = 2 * eye_cells[1]
-    loc_halfheight = 40
+    loc_halfheight = 2 * eye_cells[0]
     loc_skip = 2
     blind_skip = 3
 
     # insert provided locations and begin exploration around each one
     for loc in locs:
         tl = bf.center2tl(loc, eye_shape)
-        greedySearch(gray, svm, scaler, eye_shape, visited, tracker, tl)
+        tl = px2cell(tl)
+        greedySearch(gray, hog, svm, scaler, eye_shape, visited, tracker, tl)
 
         for i in range(-loc_halfheight, loc_halfheight, loc_skip):
             for j in range(-loc_halfwidth, loc_halfwidth, loc_skip):
                 test = (tl[0] + i, tl[1] + j)
-                greedySearch(gray, svm, scaler, eye_shape, visited, tracker, test)
+                greedySearch(gray, hog, svm, scaler, eye_shape, visited, tracker, test)
 
                 # terminate if two clusters
                 if tracker.isDone():
                     tracker.printClusterScores()
-                    return tls2ctrs(tracker.getBigClusters(), eye_shape)               
+                    return cellTLs2ctrs(tracker.getBigClusters(), eye_shape)               
 
     # if needed, repeat above search technique, but with broader scope
-    for i in range(300, 500, blind_skip):
-        for j in range(300, 800, blind_skip):
+    for i in range(30, 60, blind_skip):
+        for j in range(30, 90, blind_skip):
             test = (i, j)
-            greedySearch(gray, svm, scaler, eye_shape, visited, tracker, test)
+            greedySearch(gray, hog, svm, scaler, eye_shape, visited, tracker, test)
 
             # terminate if two clusters
             if tracker.isDone():
                 tracker.printClusterScores()
-                return tls2ctrs(tracker.getBigClusters(), eye_shape)   
+                return cellTLs2ctrs(tracker.getBigClusters(), eye_shape)   
 
     print "Did not find two good matches."
     tracker.printClusterScores()
-    return tls2ctrs(tracker.getBigClusters(), eye_shape)
+    return cellTLs2ctrs(tracker.getBigClusters(), eye_shape)
 
 
-def greedySearch(gray, svm, scaler, eye_shape, visited, tracker, tl):
+def greedySearch(gray, hog, svm, scaler, eye_shape, visited, tracker, tl):
     """ Greedy search algorithm, seeded at tl. """
 
     # only proceed if valid and not visited
@@ -188,7 +189,7 @@ def greedySearch(gray, svm, scaler, eye_shape, visited, tracker, tl):
 
     # handle this point
     visited[tl[0], tl[1]] = True
-    score = testWindow(gray, svm, scaler, eye_shape, tl)[0]
+    score = testWindow(hog, svm, scaler, eye_shape, tl)[0]
 
     if score <= 0:
         pq.put_nowait((score, tl))
@@ -204,7 +205,7 @@ def greedySearch(gray, svm, scaler, eye_shape, visited, tracker, tl):
                      (best_tl[0], best_tl[1]+1)]:
             if isValid(gray, test, eye_shape) and not visited[test[0], test[1]]:
                 visited[test[0], test[1]] = True
-                score = testWindow(gray, svm, scaler, eye_shape, test)[0]
+                score = testWindow(hog, svm, scaler, eye_shape, test)[0]
 
                 if score <= 0:
                     pq.put_nowait((score, test))
@@ -267,10 +268,10 @@ class MatchTracker:
 def dist(coords1, coords2):
     return np.sqrt((coords1[0]-coords2[0])**2 + (coords1[1]-coords2[1])**2)
 
-def tls2ctrs(tls, eye_shape):
+def cellTLs2ctrs(cellTLs, eye_shape):
     ctrs = []
-    for tl in tls:
-        ctrs.append(bf.tl2center(tl, eye_shape))
+    for cellTL in cellTLs:
+        ctrs.append(bf.tl2center(bf.cell2px(cellTL), eye_shape))
 
     return ctrs
 
@@ -345,9 +346,8 @@ def patch2eye(patch, eye_shape):
     return patch[3*eye_shape[0]:-3*eye_shape[0], 
                  3*eye_shape[1]:-3*eye_shape[1]]
 
-def testWindow(img, svm, scaler, eye_shape, tl):
-    window = extractTL(img, tl, eye_shape)
-    window_hog = scaler.transform(feature.hog(window))
-    label = svm.predict(window_hog)
-    score = svm.decision_function(window_hog)
+def testWindow(hog, svm, scaler, eye_cells, tl):
+    window = hog[tl[0]:tl[0]+eye_cells[0], tl[1]:tl[1]+eye_cells[1]]
+    window = scaler.transform(bf.normalizeHog(window).ravel())
+    score = svm.decision_function(window)
     return score
