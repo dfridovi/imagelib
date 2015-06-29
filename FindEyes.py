@@ -5,7 +5,6 @@ Detect eyes in an image.
 import cv2
 import numpy as np
 import BasicFunctions as bf
-from skimage import feature
 from skimage import transform
 from sklearn import svm as SVM
 from sklearn import preprocessing
@@ -107,11 +106,11 @@ def createSVM(training, eye_centers, eye_shape):
     # compute HOG for eyes and negs
     eyes_hog = []
     for eye in eyes:
-        eyes_hog.append(feature.hog(eye))
+        eyes_hog.append(bf.getHog(eye))
 
     negs_hog = []
     for neg in negs:
-        negs_hog.append(feature.hog(neg))
+        negs_hog.append(bf.getHog(neg))
 
     # set up training dataset (eyes = -1, negs = +1)
     training_set = np.vstack((negs_hog, eyes_hog))
@@ -131,19 +130,21 @@ def createSVM(training, eye_centers, eye_shape):
     return svm, scaler
 
 def searchForEyesSVM(img, svm, scaler, eye_shape, locs=[]):
-    """ Explore image starting at locs, visiting as few pixels as possible. """
+    """ Explore image on the cell level, reducing HOG calculations. """
     
     gray = bf.rgb2gray(img)
-
     tracker = MatchTracker()
-    visited = np.zeros((gray.shape[0]-eye_shape[0],
-                        gray.shape[1]-eye_shape[1]), dtype=np.bool)
+
+    hog = bf.getHog(gray, normalize=False, flatten=False)
+    eye_cells = (eye_shape[0] / 8, eye_shape[1] / 8)
+    visited = np.zeros((gray.shape[0]-eye_cells[0],
+                        gray.shape[1]-eye_cells[1]), dtype=np.bool)
 
     # distribution parameters
-    loc_halfwidth = 50
+    loc_halfwidth = 2 * eye_cells[1]
     loc_halfheight = 40
-    loc_skip = 7
-    blind_skip = 25
+    loc_skip = 2
+    blind_skip = 3
 
     # insert provided locations and begin exploration around each one
     for loc in locs:
@@ -350,9 +351,3 @@ def testWindow(img, svm, scaler, eye_shape, tl):
     label = svm.predict(window_hog)
     score = svm.decision_function(window_hog)
     return score
-
-def flat2ind(img, n, eye_shape):
-    ncol = img.shape[1] - eye_shape[1]
-    i = n / ncol
-    j = n % ncol
-    return (i, j)

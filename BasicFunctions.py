@@ -101,9 +101,52 @@ def drawRectangle(img, center, shape, color):
     img[tl[0]:tl[0]+1, tl[1]:tl[1]+shape[1], :] = color
     img[tl[0]+shape[0]:tl[0]+shape[0]+1, tl[1]:tl[1]+shape[1], :] = color
 
-def hog(img, orientations=9, pix_per_cell=(8, 8), 
-        cells_per_block=(3, 3), normalise=True):
+def flat2ind(n, ncol):
+    i = n / ncol
+    j = n % ncol
+    return (i, j)
+
+def getHog(img, orientations=9, cell_shape=(8, 8), normalize=True, flatten=True):
     """ 
-    Compute histogram of oriented gradients for the given image. Default is to do
-    block-level normalization 
+    Compute histogram of oriented gradients for the given grayscale image. 
+    Default is to do image-level normalization, and return a flattened 1D 
+    feature vector. Can also return 3D array of histograms indexed by cell 
+    position, which can be normalized and flattened on the fly for 
+    better performance.
     """
+
+    # compute gradient magnitude and orientation for entire image
+    grad_x = convolve2d(img, sobelX_mask(), mode="same", boundary="symm")
+    grad_y = convolve2d(img, sobelY_mask(), mode="same", boundary="symm")
+    grad_mag = np.sqrt(np.multiply(grad_x, grad_x) + 
+                       np.multiply(grad_y, grad_y))
+    grad_orient = np.arctan2(grad_y, grad_x)
+
+    # now, cell-by-cell, compute histograms
+    num_cells_x = img.shape[1] / cell_shape[1]
+    num_cells_y = img.shape[0] / cell_shape[0]
+
+    hists_out = np.empty((num_cells_y, num_cells_x, orientations), 
+                         dtype=np.float)
+    for i in range(0, num_cells_y):
+        for j in range(0, num_cells_x):
+            cell_orient = grad_orient[i*cell_shape[0]:(i+1)*cell_shape[0],
+                                      j*cell_shape[1]:(j+1)*cell_shape[1]]
+            cell_mag = grad_mag[i*cell_shape[0]:(i+1)*cell_shape[0],
+                                j*cell_shape[1]:(j+1)*cell_shape[1]]
+            hist, bins = np.histogram(cell_orient, bins=orientations, 
+                                      weights=cell_mag)
+            hists_out[i, j, :] = hist
+
+    # normalize if needed
+    if normalize:
+        hists_out = normalizeHog(hists_out)
+
+    # flatten if needed
+    if flatten:
+        return hists_out.ravel()
+
+    return hists_out
+
+def normalizeHog(hog):
+    return hog / (np.sqrt(hog.sum()**2 + 1.0e-5)
