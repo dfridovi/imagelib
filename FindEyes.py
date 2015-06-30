@@ -123,7 +123,7 @@ def createSVM(training, eye_centers, eye_shape):
 
     # train SVM
     print "Training SVM..."
-    weights = {-1 : 10.0, 1 : 1.0}
+    weights = {-1 : 1.0, 1 : 1.0}
     svm = SVM.SVC(C=1.0, kernel="linear", class_weight=weights)
     svm.fit(training_set, training_labels)
 
@@ -150,12 +150,14 @@ def searchForEyesSVM(img, svm, scaler, eye_shape, locs=[]):
     for loc in locs:
         tl = bf.center2tl(loc, eye_shape)
         tl = px2cell(tl)
-        greedySearch(gray, hog, svm, scaler, eye_shape, visited, tracker, tl)
+        greedySearch(gray, hog, svm, scaler, eye_shape, eye_cells, 
+                     visited, tracker, tl)
 
         for i in range(-loc_halfheight, loc_halfheight, loc_skip):
             for j in range(-loc_halfwidth, loc_halfwidth, loc_skip):
                 test = (tl[0] + i, tl[1] + j)
-                greedySearch(gray, hog, svm, scaler, eye_shape, visited, tracker, test)
+                greedySearch(gray, hog, svm, scaler, eye_shape, eye_cells,
+                             visited, tracker, test)
 
                 # terminate if two clusters
                 if tracker.isDone():
@@ -166,7 +168,8 @@ def searchForEyesSVM(img, svm, scaler, eye_shape, locs=[]):
     for i in range(30, 60, blind_skip):
         for j in range(30, 90, blind_skip):
             test = (i, j)
-            greedySearch(gray, hog, svm, scaler, eye_shape, visited, tracker, test)
+            greedySearch(gray, hog, svm, scaler, eye_shape, eye_cells,
+                         visited, tracker, test)
 
             # terminate if two clusters
             if tracker.isDone():
@@ -178,7 +181,8 @@ def searchForEyesSVM(img, svm, scaler, eye_shape, locs=[]):
     return cellTLs2ctrs(tracker.getBigClusters(), eye_shape)
 
 
-def greedySearch(gray, hog, svm, scaler, eye_shape, visited, tracker, tl):
+def greedySearch(gray, hog, svm, scaler, eye_shape, eye_cells, 
+                 visited, tracker, tl):
     """ Greedy search algorithm, seeded at tl. """
 
     # only proceed if valid and not visited
@@ -189,7 +193,7 @@ def greedySearch(gray, hog, svm, scaler, eye_shape, visited, tracker, tl):
 
     # handle this point
     visited[tl[0], tl[1]] = True
-    score = testWindow(hog, svm, scaler, eye_shape, tl)[0]
+    score = testWindow(hog, svm, scaler, eye_cells, tl)[0]
 
     if score <= 0:
         pq.put_nowait((score, tl))
@@ -205,7 +209,7 @@ def greedySearch(gray, hog, svm, scaler, eye_shape, visited, tracker, tl):
                      (best_tl[0], best_tl[1]+1)]:
             if isValid(gray, test, eye_shape) and not visited[test[0], test[1]]:
                 visited[test[0], test[1]] = True
-                score = testWindow(hog, svm, scaler, eye_shape, test)[0]
+                score = testWindow(hog, svm, scaler, eye_cells, test)[0]
 
                 if score <= 0:
                     pq.put_nowait((score, test))
@@ -347,7 +351,7 @@ def patch2eye(patch, eye_shape):
                  3*eye_shape[1]:-3*eye_shape[1]]
 
 def testWindow(hog, svm, scaler, eye_cells, tl):
-    window = hog[tl[0]:tl[0]+eye_cells[0], tl[1]:tl[1]+eye_cells[1]]
+    window = hog[tl[0]:tl[0]+eye_cells[0], tl[1]:tl[1]+eye_cells[1], :]
     window = scaler.transform(bf.normalizeHog(window).ravel())
     score = svm.decision_function(window)
     return score
