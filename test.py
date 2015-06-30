@@ -36,8 +36,8 @@ img = bf.imread("me.jpg")
 # print eyes
 
 # test video eye detection
-eye1_tl = (348, 409)
-eye2_tl = (353, 515)
+eye1_tl = (344, 409)
+eye2_tl = (348, 515)
 eye_shape = (24, 48)
 eye1_ctr = bf.tl2center(eye1_tl, eye_shape)
 eye2_ctr = bf.tl2center(eye2_tl, eye_shape)
@@ -45,6 +45,7 @@ eyes = [eye1_ctr, eye2_ctr]
 
 svm, scaler = createSVM(training=img, eye_centers=eyes, eye_shape=eye_shape) 
 
+eyes = []
 cap = cv2.VideoCapture(0)
 start = time.time()
 cnt = 0
@@ -52,13 +53,14 @@ cnt = 0
 try:
 	while True:
 		ret, frame = cap.read()
-		img = np.zeros(frame.shape)
+		img = np.zeros(frame.shape, dtype=np.float)
 		img[:, :, 0] = frame[:, :, 2]
 		img[:, :, 1] = frame[:, :, 1]
 		img[:, :, 2] = frame[:, :, 0]
+		bf.rescale(img)
 
 		found = searchForEyesSVM(img=img, svm=svm, scaler=scaler, 
-								 eye_shape=eye_shape, locs=[])
+								 eye_shape=eye_shape, locs=eyes)
 
 		if len(found) == 2:
 			eyes = found

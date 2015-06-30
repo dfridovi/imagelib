@@ -81,7 +81,7 @@ def createSVM(training, eye_centers, eye_shape):
     print "Constructing negative exemplars..."
     negs = []
     num_negs = 0
-    while num_negs < 1000:
+    while num_negs < 999:
         tl = (np.random.randint(0, training_gray.shape[0]), 
               np.random.randint(0, training_gray.shape[1]))
         if (isValid(training_gray, tl, eye_shape) and not
@@ -96,12 +96,18 @@ def createSVM(training, eye_centers, eye_shape):
                                bf.center2tl(ctr, eye_shape), 
                                eye_shape) for ctr in eye_centers])
                     
-    while num_eyes < 1000:
+    while num_eyes < 999:
         patch = patches.popleft()
         jittered = jitter(patch, eye_shape)
         patches.append(patch)
-        eyes.append(patch2eye(jittered, eye_shape))
+        new_eye = patch2eye(jittered, eye_shape)
+        eyes.append(new_eye)
         num_eyes += 1
+
+        # change lighting conditions
+        eyes.append(bf.adjustExposure(new_eye, 0.5))
+        eyes.append(bf.adjustExposure(new_eye, 1.5))
+        num_eyes += 2
 
     # compute HOG for eyes and negs
     eyes_hog = []
@@ -124,7 +130,7 @@ def createSVM(training, eye_centers, eye_shape):
     # train SVM
     print "Training SVM..."
     weights = {-1 : 1.0, 1 : 1.0}
-    svm = SVM.SVC(C=1.0, kernel="linear", class_weight=weights)
+    svm = SVM.SVC(C=1.0, gamma=0.01, kernel="rbf", class_weight=weights)
     svm.fit(training_set, training_labels)
 
     return svm, scaler
@@ -136,27 +142,26 @@ def searchForEyesSVM(img, svm, scaler, eye_shape, locs=[]):
     tracker = MatchTracker()
 
     hog = bf.getHog(gray, normalize=False, flatten=False)
-    eye_cells = (eye_shape[0] / 8, eye_shape[1] / 8)
+    eye_cells = (eye_shape[0] // 8, eye_shape[1] // 8)
     visited = np.zeros((hog.shape[0]-eye_cells[0],
                         hog.shape[1]-eye_cells[1]), dtype=np.bool)
 
     # distribution parameters
     loc_halfwidth = 2 * eye_cells[1]
     loc_halfheight = 2 * eye_cells[0]
-    loc_skip = 2
-    blind_skip = 3
+    loc_skip = 1
+    blind_skip = 1
 
     # insert provided locations and begin exploration around each one
     for loc in locs:
         tl = bf.center2tl(loc, eye_shape)
-        tl = px2cell(tl)
-        greedySearch(gray, hog, svm, scaler, eye_shape, eye_cells, 
-                     visited, tracker, tl)
+        tl = bf.px2cell(tl)
+        greedySearch(hog, svm, scaler, eye_cells, visited, tracker, tl)
 
         for i in range(-loc_halfheight, loc_halfheight, loc_skip):
             for j in range(-loc_halfwidth, loc_halfwidth, loc_skip):
                 test = (tl[0] + i, tl[1] + j)
-                greedySearch(gray, hog, svm, scaler, eye_shape, eye_cells,
+                greedySearch(hog, svm, scaler, eye_cells,
                              visited, tracker, test)
 
                 # terminate if two clusters
@@ -165,10 +170,11 @@ def searchForEyesSVM(img, svm, scaler, eye_shape, locs=[]):
                     return cellTLs2ctrs(tracker.getBigClusters(), eye_shape)               
 
     # if needed, repeat above search technique, but with broader scope
+    print "Did not find any correspondences."
     for i in range(30, 60, blind_skip):
         for j in range(30, 90, blind_skip):
             test = (i, j)
-            greedySearch(gray, hog, svm, scaler, eye_shape, eye_cells,
+            greedySearch(hog, svm, scaler, eye_cells,
                          visited, tracker, test)
 
             # terminate if two clusters
@@ -181,12 +187,12 @@ def searchForEyesSVM(img, svm, scaler, eye_shape, locs=[]):
     return cellTLs2ctrs(tracker.getBigClusters(), eye_shape)
 
 
-def greedySearch(gray, hog, svm, scaler, eye_shape, eye_cells, 
+def greedySearch(hog, svm, scaler, eye_cells, 
                  visited, tracker, tl):
     """ Greedy search algorithm, seeded at tl. """
 
     # only proceed if valid and not visited
-    if (not isValid(gray, tl, eye_shape)) or visited[tl[0], tl[1]]:
+    if (not isValid(hog, tl, eye_cells)) or visited[tl[0], tl[1]]:
         return
 
     pq = PriorityQueue()
@@ -207,7 +213,7 @@ def greedySearch(gray, hog, svm, scaler, eye_shape, eye_cells,
                      (best_tl[0]+1, best_tl[1]), 
                      (best_tl[0], best_tl[1]-1), 
                      (best_tl[0], best_tl[1]+1)]:
-            if isValid(gray, test, eye_shape) and not visited[test[0], test[1]]:
+            if isValid(hog, test, eye_cells) and not visited[test[0], test[1]]:
                 visited[test[0], test[1]] = True
                 score = testWindow(hog, svm, scaler, eye_cells, test)[0]
 
@@ -218,10 +224,11 @@ def greedySearch(gray, hog, svm, scaler, eye_shape, eye_cells,
 class MatchTracker:
     """ Keep track of SVM matches, and do rudimentary clustering. """
 
-    def __init__(self, MAX_DIST=15, MIN_AVGMASS=-0.3):
+    def __init__(self, MAX_DIST=10, MAX_MASS=-1.5, MIN_SIZE=4):
         self.clusters = {}
         self.MAX_DIST = MAX_DIST
-        self.MIN_AVGMASS = MIN_AVGMASS
+        self.MAX_MASS = MAX_MASS
+        self.MIN_SIZE = MIN_SIZE
 
     def insert(self, score, location):
 
@@ -252,7 +259,8 @@ class MatchTracker:
     def getBigClusters(self):
         big_clusters = []
         for centroid, stats in self.clusters.iteritems():
-            if stats["total_mass"] / stats["size"] < self.MIN_AVGMASS:
+            if (stats["total_mass"] < self.MAX_MASS or 
+                stats["size"] > self.MIN_SIZE):
                 big_clusters.append(centroid)
 
         return big_clusters
@@ -260,9 +268,9 @@ class MatchTracker:
     def printClusterScores(self):
         big_clusters = self.getBigClusters()
         for cluster in big_clusters:
-            avg_mass = (self.clusters[cluster]["total_mass"] / 
-                        self.clusters[cluster]["size"])
-            print str(cluster) + " : " + str(avg_mass)
+            mass = self.clusters[cluster]["total_mass"]
+            size = self.clusters[cluster]["size"]
+            print str(cluster) + " : " + str((mass, size))
 
     def isDone(self):
         if len(self.getBigClusters()) < 2:
@@ -289,9 +297,9 @@ def overlapsEye(tl, eye_centers, eye_shape):
                 return True
     return False
 
-def isValid(img, tl, eye_shape):
-    if (tl[0] < img.shape[0]-eye_shape[0] and 
-        tl[1] < img.shape[1]-eye_shape[1] and
+def isValid(img, tl, shape):
+    if (tl[0] < img.shape[0]-shape[0] and 
+        tl[1] < img.shape[1]-shape[1] and
         tl[0] >= 0 and tl[1] >= 0):
         return True
     return False
@@ -300,11 +308,11 @@ def extractTL(img, tl, eye_shape):
     return img[tl[0]:tl[0]+eye_shape[0], tl[1]:tl[1]+eye_shape[1]]
 
 def jitter(patch, eye_shape):
-    f = 10.0
+    f = 100.0
     
     # translate so center is at top left (origin)
-    tf = np.matrix([[1, 0, -round(3.5 * eye_shape[1])],
-                    [0, 1, -round(3.5 * eye_shape[0])],
+    tf = np.matrix([[1, 0, -round(4.5 * eye_shape[1])],
+                    [0, 1, -round(4.5 * eye_shape[0])],
                     [0, 0, 1]])
     
     # scale
@@ -336,19 +344,19 @@ def jitter(patch, eye_shape):
                     [0, 0, 1]]) * tf
     
     # translate back
-    tf = np.matrix([[1, 0, round(3.5 * eye_shape[1])],
-                    [0, 1, round(3.5 * eye_shape[0])],
+    tf = np.matrix([[1, 0, round(4.5 * eye_shape[1])],
+                    [0, 1, round(4.5 * eye_shape[0])],
                     [0, 0, 1]]) * tf
                     
     return transform.warp(patch, tf)
 
 def eye2patch(img, tl, eye_shape):
-    return img[tl[0]-3*eye_shape[0]:tl[0]+4*eye_shape[0], 
-               tl[1]-3*eye_shape[1]:tl[1]+4*eye_shape[1]]
+    return img[tl[0]-4*eye_shape[0]:tl[0]+5*eye_shape[0], 
+               tl[1]-4*eye_shape[1]:tl[1]+5*eye_shape[1]]
 
 def patch2eye(patch, eye_shape):
-    return patch[3*eye_shape[0]:-3*eye_shape[0], 
-                 3*eye_shape[1]:-3*eye_shape[1]]
+    return patch[4*eye_shape[0]:-4*eye_shape[0], 
+                 4*eye_shape[1]:-4*eye_shape[1]]
 
 def testWindow(hog, svm, scaler, eye_cells, tl):
     window = hog[tl[0]:tl[0]+eye_cells[0], tl[1]:tl[1]+eye_cells[1], :]
