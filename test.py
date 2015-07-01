@@ -8,9 +8,10 @@ import matplotlib.pyplot as plt
 import BasicFunctions as bf
 from Sharpening import sharpen
 from Blurring import blur
-from FindEyes import findEyes, searchForEyesSVM, createSVM
+from FindEyes import searchForEyesSVM, createSVM
 import time, os
 import cPickle as pickle
+from TrackEyes import trackEyes
 
 # import image
 #img = bf.imread("lotr.JPG")
@@ -37,58 +38,21 @@ img = bf.imread("me.jpg")
 # print eyes
 
 # test video eye detection
-eye1_tl = (344, 409)
-eye2_tl = (348, 515)
-eye_shape = (24, 48)
-eye1_ctr = bf.tl2center(eye1_tl, eye_shape)
-eye2_ctr = bf.tl2center(eye2_tl, eye_shape)
-eyes = [eye1_ctr, eye2_ctr]
+# eye1_tl = (344, 409)
+# eye2_tl = (348, 515)
+# eye_shape = (24, 48)
+# eye1_ctr = bf.tl2center(eye1_tl, eye_shape)
+# eye2_ctr = bf.tl2center(eye2_tl, eye_shape)
+# eyes = [eye1_ctr, eye2_ctr]
 
-if os.path.isfile("svm.pkl"):
-    svm_file = open("svm.pkl", "rb")
-    (svm, scaler) = pickle.load(svm_file)
-    svm_file.close()
-else: 
-	svm, scaler = createSVM(training=img, eye_centers=eyes, eye_shape=eye_shape) 
-	svm_file = open("svm.pkl", "wb")
-	pickle.dump((svm, scaler), svm_file)
-	svm_file.close()
+# if os.path.isfile("svm.pkl"):
+#     svm_file = open("svm.pkl", "rb")
+#     (svm, scaler) = pickle.load(svm_file)
+#     svm_file.close()
+# else: 
+# 	svm, scaler = createSVM(training=img, eye_centers=eyes, eye_shape=eye_shape) 
+# 	svm_file = open("svm.pkl", "wb")
+# 	pickle.dump((svm, scaler), svm_file)
+# 	svm_file.close()
 
-eyes = []
-cap = cv2.VideoCapture(0)
-start = time.time()
-cnt = 0
-
-try:
-	while True:
-		ret, frame = cap.read()
-		img = np.empty(frame.shape, dtype=np.float)
-		img[:, :, 0] = frame[:, :, 2]
-		img[:, :, 1] = frame[:, :, 1]
-		img[:, :, 2] = frame[:, :, 0]
-		bf.rescale(img)
-
-		found = searchForEyesSVM(img=img, svm=svm, scaler=scaler, 
-								 eye_shape=eye_shape, locs=eyes)
-
-		if len(found) == 2:
-			eyes = found
-
-			# draw rectangles
-			for eye in eyes:
-				bf.drawRectangle(frame, eye, eye_shape, (0, 1, 0))
-
-		eyes = found
-		cv2.imshow("camera", frame)
-
-		if cv2.waitKey(1) & 0xFF == ord("q"):
-			break
-
-		cnt += 1
-
-# When everything done, release the capture
-except KeyboardInterrupt:
-	cap.release()
-	cv2.destroyAllWindows()
-
-	print "Average seconds per frame: " + str((time.time() - start) / cnt)
+trackEyes()

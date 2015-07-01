@@ -12,32 +12,7 @@ from collections import deque
 from Queue import PriorityQueue
 import sys
 
-def findEyes(img, mode="haar", show=False, haar_classifier=None,
-             training=None, eye_centers=None, eye_shape=None,
-             svm=None, scaler=None, locs=[]):
-    """
-    Two modes:
-    1. haar -- uses the OpenCV built-in cascade classifier
-    2. svm -- trains an SVM using a training image and eye patches
-
-    Optionally, draw a rectangle around detected eyes (show). Other
-    parameters are described below or in createSVM(), and are irrelevant 
-    for haarEyes().
-    * svm -- sklearn svm model; may be provided if it exists
-    * scaler -- sklearn preprocessing scaler
-    * locs -- approximate centers of eyes; used to speed up search process
-    """
-
-    if mode == "haar":
-        return haarEyes(img, haar_classifier)
-    elif mode == "svm":
-        if (svm is None) or (scaler is None):
-            svm, scaler = createSVM(training, eye_centers, eye_shape)
-        return searchForEyesSVM(img, svm, scaler, eye_shape, locs)
-    else:
-        raise Exception("Mode %s not supported." % mode)
-
-def haarEyes(img, haar_classifier=None):
+def haarEyes(gray, haar_classifier=None):
     """ 
     Adapted from OpenCV online tutorials.
     """
@@ -48,16 +23,14 @@ def haarEyes(img, haar_classifier=None):
                     "share/OpenCV/haarcascades/haarcascade_eye.xml")
         haar_classifier = cv2.CascadeClassifier(haarpath)
     
-    gray = (255.0 * bf.rgb2gray(img)).astype(np.uint8)
+    gray = (255.0 * gray).astype(np.uint8)
 
     eye_centers = []
     eyes = haar_classifier.detectMultiScale(gray)
 
     for (ex, ey, ew, eh) in eyes:
-#        cv2.rectangle(img, (ex, ey), (ex + ew, ey + eh), (0, 255, 0), 2)
         eye_centers.append((ey + eh/2.0, ex + ew/2.0))
 
-#    bf.imshow(img)
     return eye_centers
 
 def createSVM(training, eye_centers, eye_shape):
@@ -135,10 +108,16 @@ def createSVM(training, eye_centers, eye_shape):
 
     return svm, scaler
 
-def searchForEyesSVM(img, svm, scaler, eye_shape, locs=[]):
-    """ Explore image on the cell level, reducing HOG calculations. """
+def searchForEyesSVM(gray, svm, scaler, eye_shape, locs=[]):
+    """ 
+    Explore image on the cell level, reducing HOG calculations.
+    Inputs are as follows (besides the obvious)
+    * svm -- sklearn svm model; may be provided if it exists
+    * scaler -- sklearn preprocessing scaler
+    * locs -- list of approximate centers of eyes
+    * eye_shape -- size of eye template in pixels (rows, columns)
+    """
     
-    gray = bf.rgb2gray(img)
     tracker = MatchTracker()
 
     eye_cells = (eye_shape[0] // 8, eye_shape[1] // 8)
@@ -196,11 +175,11 @@ def searchForEyesSVM(img, svm, scaler, eye_shape, locs=[]):
 
                 # terminate if two clusters
                 if tracker.isDone():
-                    tracker.printClusterScores()
+                    #tracker.printClusterScores()
                     return cellTLs2ctrs(tracker.getBigClusters(), eye_shape)               
 
     # if needed, repeat above search technique, but with broader scope
-    print "Did not find any correspondences."
+    #print "Did not find any correspondences."
 
     if len(locs) == 2:
         hog = bf.getHog(gray, normalize=False, flatten=False)
@@ -213,11 +192,11 @@ def searchForEyesSVM(img, svm, scaler, eye_shape, locs=[]):
 
             # terminate if two clusters
             if tracker.isDone():
-                tracker.printClusterScores()
+                #tracker.printClusterScores()
                 return cellTLs2ctrs(tracker.getBigClusters(), eye_shape)   
 
-    print "Did not find two good matches."
-    tracker.printClusterScores()
+    #print "Did not find two good matches."
+    #tracker.printClusterScores()
     return cellTLs2ctrs(tracker.getBigClusters(), eye_shape)
 
 

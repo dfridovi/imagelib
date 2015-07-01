@@ -88,6 +88,15 @@ def rgb2gray(img):
 
     return 0.299*r + 0.587*g + 0.114*b
 
+def bgr2gray(img):
+    """ Convert a BGR image to grayscale. """
+
+    b = img[:, :, 0]
+    g = img[:, :, 1]
+    r = img[:, :, 2]
+
+    return 0.299*r + 0.587*g + 0.114*b
+
 def adjustExposure(img, factor=0.5):
     """ Simulate changing the exposure by scaling the image intensity."""
 
