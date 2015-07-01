@@ -141,10 +141,7 @@ def searchForEyesSVM(img, svm, scaler, eye_shape, locs=[]):
     gray = bf.rgb2gray(img)
     tracker = MatchTracker()
 
-    hog = bf.getHog(gray, normalize=False, flatten=False)
     eye_cells = (eye_shape[0] // 8, eye_shape[1] // 8)
-    visited = np.zeros((hog.shape[0]-eye_cells[0],
-                        hog.shape[1]-eye_cells[1]), dtype=np.bool)
 
     # distribution parameters
     loc_halfwidth = 2 * eye_cells[1]
@@ -152,6 +149,39 @@ def searchForEyesSVM(img, svm, scaler, eye_shape, locs=[]):
     loc_skip = 1
     blind_skip = 1
 
+    # only compute HOG on subset of image if 2 locs provided
+    if len(locs) == 2:
+        min_x = min(bf.center2tl(locs[0], eye_shape)[1], 
+                    bf.center2tl(locs[1], eye_shape)[1])
+        max_x = max(bf.center2tl(locs[0], eye_shape)[1], 
+                    bf.center2tl(locs[1], eye_shape)[1])
+        min_y = min(bf.center2tl(locs[0], eye_shape)[0], 
+                    bf.center2tl(locs[1], eye_shape)[0])
+        max_y = max(bf.center2tl(locs[0], eye_shape)[0], 
+                    bf.center2tl(locs[1], eye_shape)[0])
+        
+        tl = (min_y - 2*eye_shape[0], min_x - 2*eye_shape[1])
+        br = (max_y + 2*eye_shape[0], max_x + 2*eye_shape[1])
+
+        tl_cell = bf.px2cell(tl)
+        br_cell = bf.px2cell(br)
+
+        tl = bf.cell2px(tl_cell)
+        br = bf.cell2px(br_cell)
+
+        indices = np.index_exp[tl_cell[0]:br_cell[0], tl_cell[1]:br_cell[1], :]
+
+        hog = np.empty((gray.shape[0] // 8, gray.shape[1] // 8, 9), 
+                       dtype=np.float)
+        hog[indices] = bf.getHog(gray[tl[0]:br[0], tl[1]:br[1]], 
+                                 normalize=False, flatten=False)
+    else:
+        hog = bf.getHog(gray, normalize=False, flatten=False)
+
+    # create visited array
+    visited = np.zeros((hog.shape[0]-eye_cells[0],
+                        hog.shape[1]-eye_cells[1]), dtype=np.bool)
+ 
     # insert provided locations and begin exploration around each one
     for loc in locs:
         tl = bf.center2tl(loc, eye_shape)
@@ -171,6 +201,10 @@ def searchForEyesSVM(img, svm, scaler, eye_shape, locs=[]):
 
     # if needed, repeat above search technique, but with broader scope
     print "Did not find any correspondences."
+
+    if len(locs) == 2:
+        hog = bf.getHog(gray, normalize=False, flatten=False)
+
     for i in range(30, 60, blind_skip):
         for j in range(30, 90, blind_skip):
             test = (i, j)
