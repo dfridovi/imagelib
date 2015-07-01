@@ -9,7 +9,8 @@ import BasicFunctions as bf
 from Sharpening import sharpen
 from Blurring import blur
 from FindEyes import findEyes, searchForEyesSVM, createSVM
-import time
+import time, os
+import cPickle as pickle
 
 # import image
 #img = bf.imread("lotr.JPG")
@@ -43,7 +44,15 @@ eye1_ctr = bf.tl2center(eye1_tl, eye_shape)
 eye2_ctr = bf.tl2center(eye2_tl, eye_shape)
 eyes = [eye1_ctr, eye2_ctr]
 
-svm, scaler = createSVM(training=img, eye_centers=eyes, eye_shape=eye_shape) 
+if os.path.isfile("svm.pkl"):
+    svm_file = open("svm.pkl", "rb")
+    (svm, scaler) = pickle.load(svm_file)
+    svm_file.close()
+else: 
+	svm, scaler = createSVM(training=img, eye_centers=eyes, eye_shape=eye_shape) 
+	svm_file = open("svm.pkl", "wb")
+	pickle.dump((svm, scaler), svm_file)
+	svm_file.close()
 
 eyes = []
 cap = cv2.VideoCapture(0)
