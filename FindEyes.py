@@ -146,8 +146,8 @@ def searchForEyesSVM(img, svm, scaler, eye_shape, locs=[]):
     # distribution parameters
     loc_halfwidth = 2 * eye_cells[1]
     loc_halfheight = 2 * eye_cells[0]
-    loc_skip = 1
-    blind_skip = 1
+    loc_skip = 2
+    blind_skip = 2
 
     # only compute HOG on subset of image if 2 locs provided
     if len(locs) == 2:
@@ -258,7 +258,7 @@ def greedySearch(hog, svm, scaler, eye_cells,
 class MatchTracker:
     """ Keep track of SVM matches, and do rudimentary clustering. """
 
-    def __init__(self, MAX_DIST=10, MAX_MASS=-1.5, MIN_SIZE=4):
+    def __init__(self, MAX_DIST=6, MAX_MASS=-3.0, MIN_SIZE=6):
         self.clusters = {}
         self.MAX_DIST = MAX_DIST
         self.MAX_MASS = MAX_MASS

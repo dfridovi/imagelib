@@ -62,7 +62,7 @@ cnt = 0
 try:
 	while True:
 		ret, frame = cap.read()
-		img = np.zeros(frame.shape, dtype=np.float)
+		img = np.empty(frame.shape, dtype=np.float)
 		img[:, :, 0] = frame[:, :, 2]
 		img[:, :, 1] = frame[:, :, 1]
 		img[:, :, 2] = frame[:, :, 0]
