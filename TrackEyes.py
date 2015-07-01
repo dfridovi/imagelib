@@ -45,14 +45,12 @@ def trackEyes(video_source=0, eye_shape=(24, 48),
 	# initialize container for previous eyes
 	last_eyes = []
 
-	# initialize threads, with terminate flags
-	terminate = False
-
-	frame_fetcher = threading.Thread(target=fetchFrame, 
-									 args=(cam, video_feed, raw_feed, terminate))
-	eye_finder = threading.Thread(target=findEyes, 
-								  args=(video_feed, found_eyes, svm, scaler, 
-										eye_shape, last_eyes, terminate))
+	# initialize threads
+	frame_fetcher = StoppableThread(target=fetchFrame, 
+									args=(cam, video_feed, raw_feed))
+	eye_finder = StoppableThread(target=findEyes, 
+								 args=(video_feed, found_eyes, svm, scaler, 
+									   eye_shape, last_eyes))
 
 	try:
 		frame_fetcher.daemon = True
@@ -71,54 +69,76 @@ def trackEyes(video_source=0, eye_shape=(24, 48),
 	except KeyboardInterrupt:
 		print "KeyboardInterrupt: Cleaning up and exiting."
 
-		terminate = True
+		frame_fetcher.stop()
+		eye_finder.stop()
 		
 		out_file = open(out_file, "wb")
 		pickle.dump(eye_locations, out_file)
 		out_file.close()
 
-		while frame_fetcher.isAlive() or eye_finder.isAlive():
-			pass
+		frame_fetcher.join()
+		eye_finder.join()
 
 		cv2.destroyAllWindows()
 		cam.release()
 
 
-def findEyes(video_feed, found_eyes, svm, scaler, eye_shape, 
-			 last_eyes, terminate):
+class StoppableThread(threading.Thread):
+    """
+    Thread class with a stop() method. The thread itself has to check
+    regularly for the stopped() condition.
+
+    From: http://stackoverflow.com/questions/323972/is-there-any-way-to-kill-a-thread-in-python
+    """
+
+    def __init__(self, target, args):
+        super(StoppableThread, self).__init__()
+        self._stop = threading.Event()
+        self._target = target
+        self._args = args
+
+    def stop(self):
+        self._stop.set()
+
+    def run(self):
+    	while not self._stop.isSet():
+    		self._target(self._args)
+
+    def stopped(self):
+        return self._stop.isSet()
+
+
+def findEyes((video_feed, found_eyes, svm, scaler, eye_shape, last_eyes)):
 	""" Find eyes in the given frame, and put output on queue. """
 
-	while not terminate:
-		print "finding eyes"
+	print "finding eyes"
 
-		# fetch new image and last eye locations
-		img = video_feed.get()
+	# fetch new image and last eye locations
+	img = video_feed.get()
 
-		# find eyes and add to queue
-		last_eyes = searchForEyesSVM(img, svm, scaler, eye_shape, last_eyes)
-		found_eyes.put(last_eyes)
+	# find eyes and add to queue
+	last_eyes = searchForEyesSVM(img, svm, scaler, eye_shape, last_eyes)
+	found_eyes.put(last_eyes)
 
-		# release video feed
-		video_feed.task_done()
+	# release video feed
+	video_feed.task_done()
 
-def fetchFrame(cam, video_feed, raw_feed, terminate):
+def fetchFrame((cam, video_feed, raw_feed)):
 	""" Fetch new frame from camera, then process and put on queue. """
 
-	while not terminate:
+	ret, frame = cam.read()
+	print "fetching new frame"
+	# handle invalid return value
+	if not ret:
+		print "Error. Invalid return value."
+		sys.exit()
 
-		ret, frame = cam.read()
-		print "fetching new frame"
-		# handle invalid return value
-		if not ret:
-			print "Error. Invalid return value."
-			sys.exit()
+	# convert to grayscale
+	img = bf.rescale(bf.bgr2gray(frame))
 
-		# convert to grayscale
-		img = bf.rescale(bf.bgr2gray(frame))
-
-		# append to queues
-		video_feed.put(img)
-		raw_feed.put(frame)
+	# append to queues
+	video_feed.put(img)
+	raw_feed.put(frame)
 
 def visualizeEyes(raw_feed, found_eyes, eye_locations, eye_shape):
 	""" Display found eyes, and save. """
