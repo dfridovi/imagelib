@@ -50,7 +50,7 @@ def trackEyes(video_source=0, eye_shape=(24, 48),
 									args=(cam, video_feed, raw_feed))
 	eye_finder = StoppableThread(target=findEyes, 
 								 args=(video_feed, found_eyes, svm, scaler, 
-									   eye_shape, last_eyes))
+									   eye_shape, last_eyes, frame_fetcher))
 
 	try:
 		frame_fetcher.daemon = True
@@ -60,14 +60,14 @@ def trackEyes(video_source=0, eye_shape=(24, 48),
 		eye_finder.start()
 
 		while True:
-			visualizeEyes(raw_feed, found_eyes, eye_locations, eye_shape)
+			visualizeEyes(raw_feed, found_eyes, eye_locations, eye_shape, eye_finder)
 
 			if cv2.waitKey(1) & 0xFF == ord("q"):
 				raise(KeyboardInterrupt)
 
 	# When everything done, release the capture and pickle the data
 	except KeyboardInterrupt:
-		print "KeyboardInterrupt: Cleaning up and exiting."
+		print "\nKeyboardInterrupt: Cleaning up and exiting."
 
 		frame_fetcher.stop()
 		eye_finder.stop()
@@ -100,21 +100,30 @@ class StoppableThread(threading.Thread):
     def stop(self):
         self._stop.set()
 
+    def go(self):
+    	self._stop.clear()
+
     def run(self):
-    	while not self._stop.isSet():
+    	if not self._stop.isSet():
     		self._target(self._args)
+    		self._stop.set()
 
     def stopped(self):
         return self._stop.isSet()
 
 
-def findEyes((video_feed, found_eyes, svm, scaler, eye_shape, last_eyes)):
+def findEyes((video_feed, found_eyes, svm, scaler, 
+			  eye_shape, last_eyes, frame_fetcher)):
 	""" Find eyes in the given frame, and put output on queue. """
 
 	print "finding eyes"
 
 	# fetch new image and last eye locations
 	img = video_feed.get()
+
+	if not frame_fetcher.isAlive():
+		frame_fetcher.go()
+		frame_fetcher.run()
 
 	# find eyes and add to queue
 	last_eyes = searchForEyesSVM(img, svm, scaler, eye_shape, last_eyes)
@@ -140,7 +149,7 @@ def fetchFrame((cam, video_feed, raw_feed)):
 	video_feed.put(img)
 	raw_feed.put(frame)
 
-def visualizeEyes(raw_feed, found_eyes, eye_locations, eye_shape):
+def visualizeEyes(raw_feed, found_eyes, eye_locations, eye_shape, eye_finder):
 	""" Display found eyes, and save. """
 
 	print "displaying"
@@ -148,6 +157,10 @@ def visualizeEyes(raw_feed, found_eyes, eye_locations, eye_shape):
 	# fetch raw frame and eye locations
 	frame = raw_feed.get()
 	found = found_eyes.get()
+
+	if not eye_finder.isAlive():
+		eye_finder.go()
+		eye_finder.run()
 
 	# save data
 	eye_locations["index"].append(eye_locations["next_frame"])
