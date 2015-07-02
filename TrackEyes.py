@@ -9,6 +9,7 @@ from Queue import Queue
 import BasicFunctions as bf
 from FindEyes import haarEyes, createSVM, searchForEyesSVM
 import sys
+import cPickle as pickle
 
 def trackEyes(svm, scaler, video_source=0, eye_shape=(24, 48),
 			  out_file="eye_tracking_data.pkl"):

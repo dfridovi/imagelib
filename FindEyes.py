@@ -78,8 +78,8 @@ def createSVM(training, eye_centers, eye_shape):
         num_eyes += 1
 
         # change lighting conditions
+        eyes.append(bf.adjustExposure(new_eye, 0.75))
         eyes.append(bf.adjustExposure(new_eye, 0.9))
-        eyes.append(bf.adjustExposure(new_eye, 1/0.9))
         num_eyes += 2
 
     # compute HOG for eyes and negs
@@ -119,14 +119,12 @@ def searchForEyesSVM(gray, svm, scaler, eye_shape, locs=[]):
     """
     
     tracker = MatchTracker()
+    pq = PriorityQueue()
 
     eye_cells = (eye_shape[0] // 8, eye_shape[1] // 8)
 
     # distribution parameters
-    loc_halfwidth = 2 * eye_cells[1]
-    loc_halfheight = 2 * eye_cells[0]
-    loc_skip = 2
-    blind_skip = 2
+    blind_skip = 7
 
     # only compute HOG on subset of image if 2 locs provided
     if len(locs) == 2:
@@ -165,61 +163,65 @@ def searchForEyesSVM(gray, svm, scaler, eye_shape, locs=[]):
     for loc in locs:
         tl = bf.center2tl(loc, eye_shape)
         tl = bf.px2cell(tl)
-        greedySearch(hog, svm, scaler, eye_cells, visited, tracker, tl)
 
-        for i in range(-loc_halfheight, loc_halfheight, loc_skip):
-            for j in range(-loc_halfwidth, loc_halfwidth, loc_skip):
-                test = (tl[0] + i, tl[1] + j)
-                greedySearch(hog, svm, scaler, eye_cells,
-                             visited, tracker, test)
+        # only proceed if valid
+        if not isValid(hog, tl, eye_cells):
+            continue
 
-                # terminate if two clusters
-                if tracker.isDone():
-                    tracker.printClusterScores()
-                    return cellTLs2ctrs(tracker.getBigClusters(), eye_shape)               
+        # handle this point
+        visited[tl[0], tl[1]] = True
+        score = testWindow(hog, svm, scaler, eye_cells, tl)[0]
+        pq.put_nowait((score, tl))
+
+        if score <= 0:
+            tracker.insert(score, tl)
+
+    # search
+    if len(locs) > 0:
+        greedySearch(hog, svm, scaler, eye_cells, visited, tracker, pq)
+        if tracker.isDone():
+            tracker.printClusterScores()
+            return cellTLs2ctrs(tracker.getBigClusters(), eye_shape)
 
     # if needed, repeat above search technique, but with broader scope
-    print "Did not find any correspondences."
+    print "Searching blindly."
 
     if len(locs) == 2:
         hog = bf.getHog(gray, normalize=False, flatten=False)
 
-    for i in range(30, 60, blind_skip):
-        for j in range(30, 90, blind_skip):
+    for i in range(5, visited.shape[0]-5, blind_skip):
+        for j in range(5, visited.shape[1]-5, blind_skip):
             test = (i, j)
-            greedySearch(hog, svm, scaler, eye_cells,
-                         visited, tracker, test)
 
-            # terminate if two clusters
-            if tracker.isDone():
-                #tracker.printClusterScores()
-                return cellTLs2ctrs(tracker.getBigClusters(), eye_shape)   
+            # only proceed if valid and not visited
+            if (not isValid(hog, test, eye_cells)) or visited[i, j]:
+                continue
+
+            # handle this point
+            visited[i, j] = True
+            score = testWindow(hog, svm, scaler, eye_cells, test)[0]
+            pq.put_nowait((score, test))
+
+            if score <= 0:
+                tracker.insert(score, test)
+
+    greedySearch(hog, svm, scaler, eye_cells, visited, tracker, pq) 
+    if tracker.isDone():
+        tracker.printClusterScores()
+        return cellTLs2ctrs(tracker.getBigClusters(), eye_shape)
 
     print "Did not find two good matches."
-    #tracker.printClusterScores()
+    tracker.printClusterScores()
     return cellTLs2ctrs(tracker.getBigClusters(), eye_shape)
 
 
 def greedySearch(hog, svm, scaler, eye_cells, 
-                 visited, tracker, tl):
-    """ Greedy search algorithm, seeded at tl. """
+                 visited, tracker, pq, max_iter=5000):
+    """ Greedy search algorithm. """
 
-    # only proceed if valid and not visited
-    if (not isValid(hog, tl, eye_cells)) or visited[tl[0], tl[1]]:
-        return
+    cnt = 0              
 
-    pq = PriorityQueue()
-
-    # handle this point
-    visited[tl[0], tl[1]] = True
-    score = testWindow(hog, svm, scaler, eye_cells, tl)[0]
-
-    if score <= 0:
-        pq.put_nowait((score, tl))
-        tracker.insert(score, tl)
-
-    # explore
-    while not pq.empty():
+    while (not tracker.isDone()) and (cnt < max_iter):
         best_score, best_tl = pq.get_nowait()
 
         for test in [(best_tl[0]-1, best_tl[1]), 
@@ -229,10 +231,15 @@ def greedySearch(hog, svm, scaler, eye_cells,
             if isValid(hog, test, eye_cells) and not visited[test[0], test[1]]:
                 visited[test[0], test[1]] = True
                 score = testWindow(hog, svm, scaler, eye_cells, test)[0]
+                
+                pq.put_nowait((score, test))
+                cnt += 1
 
                 if score <= 0:
-                    pq.put_nowait((score, test))
                     tracker.insert(score, test)
+
+        # release pq
+        pq.task_done()
 
 class MatchTracker:
     """ Keep track of SVM matches, and do rudimentary clustering. """
