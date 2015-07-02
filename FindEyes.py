@@ -189,8 +189,8 @@ def searchForEyesSVM(gray, svm, scaler, eye_shape, locs=[]):
     if len(locs) == 2:
         hog = bf.getHog(gray, normalize=False, flatten=False)
 
-    for i in range(10, visited.shape[0]-10, blind_skip):
-        for j in range(10, visited.shape[1]-10, blind_skip):
+    for i in range(20, visited.shape[0]-20, blind_skip):
+        for j in range(20, visited.shape[1]-20, blind_skip):
             test = (i, j)
 
             # only proceed if valid and not visited
@@ -244,7 +244,7 @@ def greedySearch(hog, svm, scaler, eye_cells,
 class MatchTracker:
     """ Keep track of SVM matches, and do rudimentary clustering. """
 
-    def __init__(self, MAX_DIST=6, MAX_MASS=-3.0, MIN_SIZE=6):
+    def __init__(self, MAX_DIST=6, MAX_MASS=-1.5, MIN_SIZE=4):
         self.clusters = {}
         self.MAX_DIST = MAX_DIST
         self.MAX_MASS = MAX_MASS
@@ -279,7 +279,7 @@ class MatchTracker:
     def getBigClusters(self):
         big_clusters = []
         for centroid, stats in self.clusters.iteritems():
-            if (stats["total_mass"] < self.MAX_MASS or 
+            if (stats["total_mass"] < self.MAX_MASS and 
                 stats["size"] > self.MIN_SIZE):
                 big_clusters.append(centroid)
 
