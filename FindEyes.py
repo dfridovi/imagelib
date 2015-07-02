@@ -78,8 +78,8 @@ def createSVM(training, eye_centers, eye_shape):
         num_eyes += 1
 
         # change lighting conditions
-        eyes.append(bf.adjustExposure(new_eye, 0.5))
-        eyes.append(bf.adjustExposure(new_eye, 1.5))
+        eyes.append(bf.adjustExposure(new_eye, 0.9))
+        eyes.append(bf.adjustExposure(new_eye, 1/0.9))
         num_eyes += 2
 
     # compute HOG for eyes and negs
@@ -175,11 +175,11 @@ def searchForEyesSVM(gray, svm, scaler, eye_shape, locs=[]):
 
                 # terminate if two clusters
                 if tracker.isDone():
-                    #tracker.printClusterScores()
+                    tracker.printClusterScores()
                     return cellTLs2ctrs(tracker.getBigClusters(), eye_shape)               
 
     # if needed, repeat above search technique, but with broader scope
-    #print "Did not find any correspondences."
+    print "Did not find any correspondences."
 
     if len(locs) == 2:
         hog = bf.getHog(gray, normalize=False, flatten=False)
@@ -195,7 +195,7 @@ def searchForEyesSVM(gray, svm, scaler, eye_shape, locs=[]):
                 #tracker.printClusterScores()
                 return cellTLs2ctrs(tracker.getBigClusters(), eye_shape)   
 
-    #print "Did not find two good matches."
+    print "Did not find two good matches."
     #tracker.printClusterScores()
     return cellTLs2ctrs(tracker.getBigClusters(), eye_shape)
 

@@ -100,7 +100,12 @@ def bgr2gray(img):
 def adjustExposure(img, factor=0.5):
     """ Simulate changing the exposure by scaling the image intensity."""
 
-    return truncate(factor * img)
+    if factor < 1:
+        return factor * img
+
+    else:
+        factor = 1.0 / factor
+        return 1.0 - factor * (1.0 - img)
 
 def center2tl(ctr, shape):
     """ Convert center of box to top left corner. """

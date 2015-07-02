@@ -38,21 +38,21 @@ img = bf.imread("me.jpg")
 # print eyes
 
 # test video eye detection
-# eye1_tl = (344, 409)
-# eye2_tl = (348, 515)
-# eye_shape = (24, 48)
-# eye1_ctr = bf.tl2center(eye1_tl, eye_shape)
-# eye2_ctr = bf.tl2center(eye2_tl, eye_shape)
-# eyes = [eye1_ctr, eye2_ctr]
+eye1_tl = (344, 409)
+eye2_tl = (348, 515)
+eye_shape = (24, 48)
+eye1_ctr = bf.tl2center(eye1_tl, eye_shape)
+eye2_ctr = bf.tl2center(eye2_tl, eye_shape)
+eyes = [eye1_ctr, eye2_ctr]
 
-# if os.path.isfile("svm.pkl"):
-#     svm_file = open("svm.pkl", "rb")
-#     (svm, scaler) = pickle.load(svm_file)
-#     svm_file.close()
-# else: 
-# 	svm, scaler = createSVM(training=img, eye_centers=eyes, eye_shape=eye_shape) 
-# 	svm_file = open("svm.pkl", "wb")
-# 	pickle.dump((svm, scaler), svm_file)
-# 	svm_file.close()
+if os.path.isfile("svm.pkl"):
+    svm_file = open("svm.pkl", "rb")
+    (svm, scaler) = pickle.load(svm_file)
+    svm_file.close()
+else: 
+	svm, scaler = createSVM(training=img, eye_centers=eyes, eye_shape=eye_shape) 
+	svm_file = open("svm.pkl", "wb")
+	pickle.dump((svm, scaler), svm_file)
+	svm_file.close()
 
-trackEyes()
+trackEyes(svm=svm, scaler=scaler)
