@@ -189,8 +189,8 @@ def searchForEyesSVM(gray, svm, scaler, eye_shape, locs=[]):
     if len(locs) == 2:
         hog = bf.getHog(gray, normalize=False, flatten=False)
 
-    for i in range(5, visited.shape[0]-5, blind_skip):
-        for j in range(5, visited.shape[1]-5, blind_skip):
+    for i in range(10, visited.shape[0]-10, blind_skip):
+        for j in range(10, visited.shape[1]-10, blind_skip):
             test = (i, j)
 
             # only proceed if valid and not visited
