@@ -152,12 +152,15 @@ def searchForEyesSVM(gray, svm, scaler, eye_shape, locs=[]):
                        dtype=np.float)
         hog[indices] = bf.getHog(gray[tl[0]:br[0], tl[1]:br[1]], 
                                  normalize=False, flatten=False)
+        hog_bounds = (tl_cell, br_cell)
+
     else:
         hog = bf.getHog(gray, normalize=False, flatten=False)
+        hog_bounds = ((0, 0), (gray.shape[0] // 8 - 1, gray.shape[1] // 8 - 1))
 
     # create visited array
-    visited = np.zeros((hog.shape[0]-eye_cells[0],
-                        hog.shape[1]-eye_cells[1]), dtype=np.bool)
+    visited = np.zeros((hog.shape[0]-eye_cells[0]+1,
+                        hog.shape[1]-eye_cells[1]+1), dtype=np.bool)
  
     # insert provided locations and begin exploration around each one
     for loc in locs:
@@ -178,7 +181,8 @@ def searchForEyesSVM(gray, svm, scaler, eye_shape, locs=[]):
 
     # search
     if len(locs) > 0:
-        greedySearch(hog, svm, scaler, eye_cells, visited, tracker, pq)
+        greedySearch(hog, hog_bounds, svm, scaler, 
+                     eye_cells, visited, tracker, pq)
         if tracker.isDone():
             tracker.printClusterScores()
             return cellTLs2ctrs(tracker.getBigClusters(), eye_shape)
@@ -188,6 +192,7 @@ def searchForEyesSVM(gray, svm, scaler, eye_shape, locs=[]):
 
     if len(locs) == 2:
         hog = bf.getHog(gray, normalize=False, flatten=False)
+        hog_bounds = ((0, 0), (gray.shape[0] // 8 - 1, gray.shape[1] // 8 - 1)) 
 
     for i in range(20, visited.shape[0]-20, blind_skip):
         for j in range(20, visited.shape[1]-20, blind_skip):
@@ -205,7 +210,8 @@ def searchForEyesSVM(gray, svm, scaler, eye_shape, locs=[]):
             if score <= 0:
                 tracker.insert(score, test)
 
-    greedySearch(hog, svm, scaler, eye_cells, visited, tracker, pq) 
+    greedySearch(hog, hog_bounds, svm, scaler, 
+                 eye_cells, visited, tracker, pq) 
     if tracker.isDone():
         tracker.printClusterScores()
         return cellTLs2ctrs(tracker.getBigClusters(), eye_shape)
@@ -215,8 +221,8 @@ def searchForEyesSVM(gray, svm, scaler, eye_shape, locs=[]):
     return cellTLs2ctrs(tracker.getBigClusters(), eye_shape)
 
 
-def greedySearch(hog, svm, scaler, eye_cells, 
-                 visited, tracker, pq, max_iter=5000):
+def greedySearch(hog, hog_bounds, svm, scaler, eye_cells, 
+                 visited, tracker, pq, max_iter=150):
     """ Greedy search algorithm. """
 
     cnt = 0              
@@ -228,7 +234,11 @@ def greedySearch(hog, svm, scaler, eye_cells,
                      (best_tl[0]+1, best_tl[1]), 
                      (best_tl[0], best_tl[1]-1), 
                      (best_tl[0], best_tl[1]+1)]:
-            if isValid(hog, test, eye_cells) and not visited[test[0], test[1]]:
+            if (isValid(hog, test, eye_cells) and 
+                test[0] >= hog_bounds[0][0] and test[0] <= hog_bounds[1][0] and
+                test[1] >= hog_bounds[0][1] and test[1] <= hog_bounds[1][1] and
+                not visited[test[0], test[1]]):
+
                 visited[test[0], test[1]] = True
                 score = testWindow(hog, svm, scaler, eye_cells, test)[0]
                 
@@ -318,8 +328,8 @@ def overlapsEye(tl, eye_centers, eye_shape):
     return False
 
 def isValid(img, tl, shape):
-    if (tl[0] < img.shape[0]-shape[0] and 
-        tl[1] < img.shape[1]-shape[1] and
+    if (tl[0] <= img.shape[0]-shape[0] and 
+        tl[1] <= img.shape[1]-shape[1] and
         tl[0] >= 0 and tl[1] >= 0):
         return True
     return False

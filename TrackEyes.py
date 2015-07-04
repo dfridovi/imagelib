@@ -38,8 +38,8 @@ def trackEyes(svm, scaler, video_source=0, eye_shape=(24, 48),
 			found = findEyes(img, svm, scaler, eye_shape, found)
 			visualizeEyes(raw, found, eye_locations, eye_shape)
 
-			if cv2.waitKey(1) & 0xFF == ord("q"):
-				raise(KeyboardInterrupt)
+			# if cv2.waitKey(1) & 0xFF == ord("q"):
+			# 	raise(KeyboardInterrupt)
 
 	# When everything done, release the capture and pickle the data
 	except KeyboardInterrupt:
