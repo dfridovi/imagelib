@@ -117,7 +117,6 @@ def searchForEyesSVM(gray, svm, scaler, eye_shape, locs=[]):
     * locs -- list of approximate centers of eyes
     * eye_shape -- size of eye template in pixels (rows, columns)
     """
-    PQ_SIZE = 0
 
     tracker = MatchTracker()
     pq = PriorityQueue()
@@ -180,15 +179,13 @@ def searchForEyesSVM(gray, svm, scaler, eye_shape, locs=[]):
         score = testWindow(hog, svm, scaler, eye_cells, tl)[0]
         pq.put_nowait((score, tl))
 
-        PQ_SIZE += 1
-
         if score <= 0:
             tracker.insert(score, tl)
 
     # search
     if len(locs) > 0:
         greedySearch(hog, hog_computed, svm, scaler, 
-                     eye_cells, visited, tracker, pq, PQ_SIZE)
+                     eye_cells, visited, tracker, pq)
         if tracker.isDone():
             tracker.printClusterScores()
             return cellTLs2ctrs(tracker.getBigClusters(), eye_shape)
@@ -213,13 +210,11 @@ def searchForEyesSVM(gray, svm, scaler, eye_shape, locs=[]):
             score = testWindow(hog, svm, scaler, eye_cells, test)[0]
             pq.put_nowait((score, test))
 
-            PQ_SIZE += 1
-
             if score <= 0:
                 tracker.insert(score, test)
 
     greedySearch(hog, hog_computed, svm, scaler, 
-                 eye_cells, visited, tracker, pq, PQ_SIZE) 
+                 eye_cells, visited, tracker, pq) 
     if tracker.isDone():
         tracker.printClusterScores()
         return cellTLs2ctrs(tracker.getBigClusters(), eye_shape)
@@ -230,7 +225,7 @@ def searchForEyesSVM(gray, svm, scaler, eye_shape, locs=[]):
 
 
 def greedySearch(hog, hog_computed, svm, scaler, eye_cells, 
-                 visited, tracker, pq, PQ_SIZE):
+                 visited, tracker, pq):
     """ Greedy search algorithm. """
 
     cnt = 0              
@@ -239,8 +234,6 @@ def greedySearch(hog, hog_computed, svm, scaler, eye_cells,
     while (not tracker.isDone()) and (cnt < max_iter):
         best_score, best_tl = pq.get_nowait()
         cnt += 1
-
-        PQ_SIZE -= 1
 
         for test in [(best_tl[0]-1, best_tl[1]), 
                      (best_tl[0]+1, best_tl[1]), 
@@ -254,7 +247,6 @@ def greedySearch(hog, hog_computed, svm, scaler, eye_cells,
                 score = testWindow(hog, svm, scaler, eye_cells, test)[0]
                 
                 pq.put_nowait((score, test))
-                PQ_SIZE += 1
                 cnt += 1
 
                 if score <= 0:
