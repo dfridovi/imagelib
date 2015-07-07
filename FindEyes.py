@@ -142,8 +142,8 @@ def searchForEyesSVM(gray, svm, scaler, eye_shape, locs=[]):
     max_y = max(bf.center2tl(locs[0], eye_shape)[0], 
                 bf.center2tl(locs[1], eye_shape)[0])
     
-    tl = (min_y - 2*eye_shape[0], min_x - 2*eye_shape[1])
-    br = (max_y + 2*eye_shape[0], max_x + 2*eye_shape[1])
+    tl = (min_y - 4*eye_shape[0], min_x - 4*eye_shape[1])
+    br = (max_y + 4*eye_shape[0], max_x + 4*eye_shape[1])
 
     tl_cell = bf.px2cell(tl)
     br_cell = bf.px2cell(br)
@@ -196,8 +196,8 @@ def searchForEyesSVM(gray, svm, scaler, eye_shape, locs=[]):
     hog = bf.getHog(gray, normalize=False, flatten=False)
     hog_computed[:, :] = True
 
-    for i in range(5, visited.shape[0]-5, blind_skip):
-        for j in range(5, visited.shape[1]-5, blind_skip):
+    for i in range(30, visited.shape[0]-30, blind_skip):
+        for j in range(30, visited.shape[1]-30, blind_skip):
             test = (i, j)
 
             # only proceed if valid and not visited
@@ -234,9 +234,8 @@ def greedySearch(hog, hog_computed, svm, scaler, eye_cells,
     cnt = 0              
     max_iter = int(hog_computed.sum() * 0.9)
 
-    while (not tracker.isDone()) and (cnt < max_iter):
+    while (not tracker.isDone()) and (cnt < max_iter) and (pq.qsize() > 0):
         best_score, best_tl = pq.get_nowait()
-        cnt += 1
 
         for test in [(best_tl[0]-1, best_tl[1]), 
                      (best_tl[0]+1, best_tl[1]), 
@@ -261,7 +260,7 @@ def greedySearch(hog, hog_computed, svm, scaler, eye_cells,
 class MatchTracker:
     """ Keep track of SVM matches, and do rudimentary clustering. """
 
-    def __init__(self, MAX_DIST=6, MAX_MASS=-1.0, MIN_SIZE=4):
+    def __init__(self, MAX_DIST=3, MAX_MASS=-2.0, MIN_SIZE=4):
         self.clusters = {}
         self.MAX_DIST = MAX_DIST
         self.MAX_MASS = MAX_MASS
@@ -307,10 +306,12 @@ class MatchTracker:
 
     def getTwoBestClusters(self):
         best_clusters = PriorityQueue()
+        cnt = 0
 
         for centroid, stats in self.clusters.iteritems():
             avg_mass = stats["total_mass"] / stats["size"]
             best_clusters.put_nowait((avg_mass, centroid))
+            cnt += 1
 
         avg_mass, cluster1 = best_clusters.get_nowait(); best_clusters.task_done()
         avg_mass, cluster2 = best_clusters.get_nowait(); best_clusters.task_done()
@@ -319,14 +320,20 @@ class MatchTracker:
         scores = [self.clusters[cluster1]["total_mass"],
                   self.clusters[cluster2]["total_mass"]]
 
+        print "Total clusters: " + str(cnt)
         return centroids, scores
 
     def printClusterScores(self):
         big_clusters, scores = self.getBigClusters()
+        cnt = 0
+
         for cluster in big_clusters:
             mass = self.clusters[cluster]["total_mass"]
             size = self.clusters[cluster]["size"]
             print str(cluster) + " : " + str((mass, size))
+            cnt += 1
+
+        print "Total clusters: " + str(cnt)
 
     def isDone(self):
         big_clusters, scores = self.getBigClusters()
