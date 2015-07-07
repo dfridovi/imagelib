@@ -188,7 +188,9 @@ def searchForEyesSVM(gray, svm, scaler, eye_shape, locs=[]):
                      eye_cells, visited, tracker, pq)
         if tracker.isDone():
             tracker.printClusterScores()
-            return cellTLs2ctrs(tracker.getBigClusters(), eye_shape)
+            clusters, scores = tracker.getBigClusters()
+            centers = cellTLs2ctrs(clusters, eye_shape)
+            return centers, scores
 
     # if needed, repeat above search technique, but with broader scope
     print "Searching blindly."
@@ -217,11 +219,15 @@ def searchForEyesSVM(gray, svm, scaler, eye_shape, locs=[]):
                  eye_cells, visited, tracker, pq) 
     if tracker.isDone():
         tracker.printClusterScores()
-        return cellTLs2ctrs(tracker.getBigClusters(), eye_shape)
+        clusters, scores = tracker.getBigClusters()
+        centers = cellTLs2ctrs(clusters, eye_shape)
+        return centers, scores
 
     print "Did not find two good matches."
     tracker.printClusterScores()
-    return cellTLs2ctrs(tracker.getBigClusters(), eye_shape)
+    clusters, scores = tracker.getTwoBestClusters()
+    centers = cellTLs2ctrs(clusters, eye_shape)
+    return centers, scores
 
 
 def greedySearch(hog, hog_computed, svm, scaler, eye_cells, 
@@ -292,15 +298,34 @@ class MatchTracker:
 
     def getBigClusters(self):
         big_clusters = []
+        scores = []
+
         for centroid, stats in self.clusters.iteritems():
             if (stats["total_mass"] < self.MAX_MASS and 
                 stats["size"] > self.MIN_SIZE):
                 big_clusters.append(centroid)
+                scores.append(stats["total_mass"])
 
-        return big_clusters
+        return big_clusters, scores
+
+    def getTwoBestClusters(self):
+        best_clusters = PriorityQueue()
+
+        for centroid, stats in self.clusters.iteritems():
+            avg_mass = stats["total_mass"] / stats["size"]
+            best_clusters.put_nowait((avg_mass, centroid))
+
+        avg_mass, cluster1 = best_clusters.get_nowait(); best_clusters.task_done()
+        avg_mass, cluster2 = best_clusters.get_nowait(); best_clusters.task_done()
+
+        centroids = [cluster1, cluster2]
+        scores = [self.clusters[cluster1]["total_mass"],
+                  self.clusters[cluster2]["total_mass"]]
+
+        return centroids, scores
 
     def printClusterScores(self):
-        big_clusters = self.getBigClusters()
+        big_clusters, scores = self.getBigClusters()
         for cluster in big_clusters:
             mass = self.clusters[cluster]["total_mass"]
             size = self.clusters[cluster]["size"]

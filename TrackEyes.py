@@ -26,17 +26,32 @@ def trackEyes(svm, scaler, video_source=0, eye_shape=(24, 48),
 	cam = cv2.VideoCapture(video_source)
 
 	# store the data
-	eye_locations = {"index" : [], "locs" : [], "next_frame" : 1}
+	eye_locations = {"raw" : [], "filtered" : []}
 	
-	# initialize container for previous eyes
-	found = []
+	# initialize filters for eye locations
+	l_filter = LocationPredictor(start=(350, 400))
+	r_filter = LocationPredictor(start=(360, 575))
 
 	try:
 
 		while True:
 			img, raw = fetchFrame(cam)
-			found = findEyes(img, svm, scaler, eye_shape, found)
-			visualizeEyes(raw, found, eye_locations, eye_shape)
+			locs = [l_filter.predict(), r_filter.predict()]
+			found, scores = findEyes(img, svm, scaler, eye_shape, locs)
+
+			print found
+
+			# update filters
+			if found[0][1] <= found[1][1]:
+				l_filter.update(locs[0], scores[0])
+				r_filter.update(locs[1], scores[1])
+			else:
+				l_filter.update(locs[1], scores[1])
+				r_filter.update(locs[0], scores[0])
+
+			# get filtered locations and visualize raw/filtered
+			filtered = [l_filter.getPos(), r_filter.getPos()]
+			visualizeEyes(raw, found, filtered, eye_locations, eye_shape)
 
 			if cv2.waitKey(1) & 0xFF == ord("q"):
 				raise(KeyboardInterrupt)
@@ -55,15 +70,15 @@ def trackEyes(svm, scaler, video_source=0, eye_shape=(24, 48),
 class LocationPredictor:
 	""" Kalman filter to predict next eye locations."""
 
-	def __init__(self, shape, AX_SD=100.0, AY_SD=100.0):
+	def __init__(self, start, AX_SD=100.0, AY_SD=100.0):
 		self.ax_var = AX_SD**2
 		self.ay_var = AY_SD**2
 
 		self.last_t = None
-		self.xstate = np.matrix([[0.5 * shape[1]],
-									  [0]], dtype=np.float)
-		self.ystate = np.matrix([[0.5 * shape[0]],
-									  [0]], dtype=np.float)
+		self.xstate = np.matrix([[start[1]],
+								 [0]], dtype=np.float)
+		self.ystate = np.matrix([[start[0]],
+								 [0]], dtype=np.float)
 
 		# Kalman filter parameters
 		self.F = None
@@ -71,10 +86,6 @@ class LocationPredictor:
 		self.P = np.matrix([[200**2, 0],
 							[0, 200**2]], dtype=np.float)
 		self.H = np.matrix([[1, 0]], dtype=np.float)
-		self.K = None
-		self.R = None
-		self.S = None
-		self.Y = None
 
 
 	def setF(self, dt):
@@ -84,9 +95,6 @@ class LocationPredictor:
 	def setQ(self, dt):
 		self.Q = np.matrix([[dt**4 * 0.25, dt**3 * 0.5],
 						  	[dt**3 * 0.5, dt**2]], dtype=np.float)
-
-	def setR(self, score):
-		self.R = np.matrix([[np.abs(1.0 / score) * 10.0]], dtype=np.float)
 
 	def predict(self):
 		if self.last_t is not None:
@@ -101,6 +109,8 @@ class LocationPredictor:
 		self.ystate = self.F * self.ystate
 		self.P = self.F * self.P * self.F.T + self.Q
 
+		return self.getPos()
+
 	def update(self, loc, score):
 		if self.last_t is not None:
 			dt = time.time() - self.last_t
@@ -108,18 +118,32 @@ class LocationPredictor:
 			dt = 0
 		self.last_t = time.time()
 
-		self.Y = 
+		R = np.matrix([[np.abs(1.0 / score) * 10.0]], dtype=np.float)
+
+		Yx = np.matrix([[loc[1]]], dtype=np.float) - self.H * self.xstate
+		Yy = np.matrix([[loc[0]]], dtype=np.float) - self.H * self.ystate
+
+		S = self.H * self.P * self.H.T + R
+		K = self.P * self.H.T * np.linalg.inv(S)
+
+		self.xstate += K * Yx
+		self.ystate += K * Yy
+
+		self.P -= K * self.H * self.P
+
+	def getPos(self):
+		return (self.ystate[0, 0], self.xstate[0, 0])
 
 
 def findEyes(img, svm, scaler, eye_shape, locs):
-	""" Find eyes in the given frame, and put output on queue. """
+	""" Find eyes in the given frame. """
 
-	# find eyes and add to queue
-	found = searchForEyesSVM(img, svm, scaler, eye_shape, locs)
-	return found
+	# find eyes
+	found, scores = searchForEyesSVM(img, svm, scaler, eye_shape, locs)
+	return found, scores
 
 def fetchFrame(cam):
-	""" Fetch new frame from camera, then process and put on queue. """
+	""" Fetch new frame from camera and preprocess. """
 
 	ret, frame = cam.read()
 
@@ -133,16 +157,17 @@ def fetchFrame(cam):
 
 	return img, frame
 
-def visualizeEyes(raw, found, eye_locations, eye_shape):
+def visualizeEyes(raw, found, filtered, eye_locations, eye_shape):
 	""" Display found eyes, and save. """
 
 	# save data
-	eye_locations["index"].append(eye_locations["next_frame"])
-	eye_locations["locs"].append(found)
-	eye_locations["next_frame"] += 1
+	eye_locations["raw"].append(found)
+	eye_locations["filtered"].append(filtered)
 
 	# display 
-	for eye in found:
-		bf.drawRectangle(raw, eye, eye_shape, (0, 255, 0))
+	bf.drawRectangle(raw, found[0], eye_shape, (0, 0, 255))
+	bf.drawRectangle(raw, found[1], eye_shape, (0, 0, 255))
+	bf.drawRectangle(raw, int(filtered[0]), eye_shape, (255, 0, 0))
+	bf.drawRectangle(raw, int(filtered[1]), eye_shape, (255, 0, 0))
 
 	cv2.imshow("camera", raw)
