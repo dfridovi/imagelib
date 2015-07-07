@@ -128,38 +128,37 @@ def searchForEyesSVM(gray, svm, scaler, eye_shape, locs=[]):
     # distribution parameters
     blind_skip = 3
 
-    # only compute HOG on subset of image if 2 locs provided
-    if len(locs) == 2:
-        min_x = min(bf.center2tl(locs[0], eye_shape)[1], 
-                    bf.center2tl(locs[1], eye_shape)[1])
-        max_x = max(bf.center2tl(locs[0], eye_shape)[1], 
-                    bf.center2tl(locs[1], eye_shape)[1])
-        min_y = min(bf.center2tl(locs[0], eye_shape)[0], 
-                    bf.center2tl(locs[1], eye_shape)[0])
-        max_y = max(bf.center2tl(locs[0], eye_shape)[0], 
-                    bf.center2tl(locs[1], eye_shape)[0])
-        
-        tl = (min_y - 2*eye_shape[0], min_x - 2*eye_shape[1])
-        br = (max_y + 2*eye_shape[0], max_x + 2*eye_shape[1])
+    # adjust locs
+    locs[0] = (int(locs[0][0]), int(locs[0][1]))
+    locs[1] = (int(locs[1][0]), int(locs[1][1]))
 
-        tl_cell = bf.px2cell(tl)
-        br_cell = bf.px2cell(br)
+    # only compute HOG on subset of image at first
+    min_x = min(bf.center2tl(locs[0], eye_shape)[1], 
+                bf.center2tl(locs[1], eye_shape)[1])
+    max_x = max(bf.center2tl(locs[0], eye_shape)[1], 
+                bf.center2tl(locs[1], eye_shape)[1])
+    min_y = min(bf.center2tl(locs[0], eye_shape)[0], 
+                bf.center2tl(locs[1], eye_shape)[0])
+    max_y = max(bf.center2tl(locs[0], eye_shape)[0], 
+                bf.center2tl(locs[1], eye_shape)[0])
+    
+    tl = (min_y - 2*eye_shape[0], min_x - 2*eye_shape[1])
+    br = (max_y + 2*eye_shape[0], max_x + 2*eye_shape[1])
 
-        tl = bf.cell2px(tl_cell)
-        br = bf.cell2px(br_cell)
+    tl_cell = bf.px2cell(tl)
+    br_cell = bf.px2cell(br)
 
-        indices = np.index_exp[tl_cell[0]:br_cell[0], tl_cell[1]:br_cell[1], :]
-        indices_computed = np.index_exp[tl_cell[0]:br_cell[0], tl_cell[1]:br_cell[1]]
+    tl = bf.cell2px(tl_cell)
+    br = bf.cell2px(br_cell)
 
-        hog = np.empty((gray.shape[0] // 8, gray.shape[1] // 8, 9), 
-                       dtype=np.float)
-        hog[indices] = bf.getHog(gray[tl[0]:br[0], tl[1]:br[1]], 
-                                 normalize=False, flatten=False)
-        hog_computed[indices_computed] = True
+    indices = np.index_exp[tl_cell[0]:br_cell[0], tl_cell[1]:br_cell[1], :]
+    indices_computed = np.index_exp[tl_cell[0]:br_cell[0], tl_cell[1]:br_cell[1]]
 
-    else:
-        hog = bf.getHog(gray, normalize=False, flatten=False)
-        hog_computed[:, :] = True
+    hog = np.empty((gray.shape[0] // 8, gray.shape[1] // 8, 9), 
+                   dtype=np.float)
+    hog[indices] = bf.getHog(gray[tl[0]:br[0], tl[1]:br[1]], 
+                             normalize=False, flatten=False)
+    hog_computed[indices_computed] = True
 
     # create visited array
     visited = np.zeros((hog.shape[0]-eye_cells[0]+1,
@@ -183,21 +182,19 @@ def searchForEyesSVM(gray, svm, scaler, eye_shape, locs=[]):
             tracker.insert(score, tl)
 
     # search
-    if len(locs) > 0:
-        greedySearch(hog, hog_computed, svm, scaler, 
-                     eye_cells, visited, tracker, pq)
-        if tracker.isDone():
-            tracker.printClusterScores()
-            clusters, scores = tracker.getBigClusters()
-            centers = cellTLs2ctrs(clusters, eye_shape)
-            return centers, scores
+    greedySearch(hog, hog_computed, svm, scaler, 
+                 eye_cells, visited, tracker, pq)
+    if tracker.isDone():
+        tracker.printClusterScores()
+        clusters, scores = tracker.getBigClusters()
+        centers = cellTLs2ctrs(clusters, eye_shape)
+        return centers, scores
 
     # if needed, repeat above search technique, but with broader scope
     print "Searching blindly."
 
-    if len(locs) == 2:
-        hog = bf.getHog(gray, normalize=False, flatten=False)
-        hog_computed[:, :] = True
+    hog = bf.getHog(gray, normalize=False, flatten=False)
+    hog_computed[:, :] = True
 
     for i in range(5, visited.shape[0]-5, blind_skip):
         for j in range(5, visited.shape[1]-5, blind_skip):
@@ -332,7 +329,8 @@ class MatchTracker:
             print str(cluster) + " : " + str((mass, size))
 
     def isDone(self):
-        if len(self.getBigClusters()) < 2:
+        big_clusters, scores = self.getBigClusters()
+        if len(big_clusters) < 2:
             return False
         return True
 

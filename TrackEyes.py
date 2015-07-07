@@ -101,7 +101,8 @@ class LocationPredictor:
 			dt = time.time() - self.last_t
 		else:
 			dt = 0
-
+		self.last_t = time.time()
+		
 		self.setF(dt)
 		self.setQ(dt)
 
@@ -112,12 +113,6 @@ class LocationPredictor:
 		return self.getPos()
 
 	def update(self, loc, score):
-		if self.last_t is not None:
-			dt = time.time() - self.last_t
-		else:
-			dt = 0
-		self.last_t = time.time()
-
 		R = np.matrix([[np.abs(1.0 / score) * 10.0]], dtype=np.float)
 
 		Yx = np.matrix([[loc[1]]], dtype=np.float) - self.H * self.xstate
@@ -167,7 +162,9 @@ def visualizeEyes(raw, found, filtered, eye_locations, eye_shape):
 	# display 
 	bf.drawRectangle(raw, found[0], eye_shape, (0, 0, 255))
 	bf.drawRectangle(raw, found[1], eye_shape, (0, 0, 255))
-	bf.drawRectangle(raw, int(filtered[0]), eye_shape, (255, 0, 0))
-	bf.drawRectangle(raw, int(filtered[1]), eye_shape, (255, 0, 0))
+	bf.drawRectangle(raw, (int(filtered[0][0]), int(filtered[0][1])), 
+					 eye_shape, (255, 0, 0))
+	bf.drawRectangle(raw, (int(filtered[1][0]), int(filtered[1][1])), 
+					 eye_shape, (255, 0, 0))
 
 	cv2.imshow("camera", raw)
