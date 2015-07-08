@@ -196,8 +196,8 @@ def searchForEyesSVM(gray, svm, scaler, eye_shape, locs=[]):
     hog = bf.getHog(gray, normalize=False, flatten=False)
     hog_computed[:, :] = True
 
-    for i in range(30, visited.shape[0]-30, blind_skip):
-        for j in range(30, visited.shape[1]-30, blind_skip):
+    for i in range(20, visited.shape[0]-20, blind_skip):
+        for j in range(20, visited.shape[1]-20, blind_skip):
             test = (i, j)
 
             # only proceed if valid and not visited
@@ -325,15 +325,11 @@ class MatchTracker:
 
     def printClusterScores(self):
         big_clusters, scores = self.getBigClusters()
-        cnt = 0
 
         for cluster in big_clusters:
             mass = self.clusters[cluster]["total_mass"]
             size = self.clusters[cluster]["size"]
             print str(cluster) + " : " + str((mass, size))
-            cnt += 1
-
-        print "Total clusters: " + str(cnt)
 
     def isDone(self):
         big_clusters, scores = self.getBigClusters()
