@@ -16,9 +16,11 @@ The following functions are currently supported.
 * Variable image blurring
 * Variable image sharpening, with optional noise reduction
 * Eye detection
+* Eye tracking in video
 
 ## In the works...
 The following functionality will be added soon!
-* Eye tracking (in video)
+* Pupil detection
+* Gaze estimation
 * Deconvolution (blind/non-blind)
 * Focus detection
