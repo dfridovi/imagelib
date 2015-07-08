@@ -108,7 +108,7 @@ def createSVM(training, eye_centers, eye_shape):
 
     return svm, scaler
 
-def searchForEyesSVM(gray, svm, scaler, eye_shape, locs=[]):
+def searchForEyesSVM(gray, svm, scaler, eye_shape, locs):
     """ 
     Explore image on the cell level, reducing HOG calculations.
     Inputs are as follows (besides the obvious)
@@ -131,6 +131,8 @@ def searchForEyesSVM(gray, svm, scaler, eye_shape, locs=[]):
     # adjust locs
     locs[0] = (int(locs[0][0]), int(locs[0][1]))
     locs[1] = (int(locs[1][0]), int(locs[1][1]))
+
+    print locs
 
     # only compute HOG on subset of image at first
     min_x = min(bf.center2tl(locs[0], eye_shape)[1], 
@@ -190,41 +192,43 @@ def searchForEyesSVM(gray, svm, scaler, eye_shape, locs=[]):
         centers = cellTLs2ctrs(clusters, eye_shape)
         return centers, scores
 
-    # if needed, repeat above search technique, but with broader scope
-    print "Searching blindly."
+    # # if needed, repeat above search technique, but with broader scope
+    # print "Searching blindly."
 
-    hog = bf.getHog(gray, normalize=False, flatten=False)
-    hog_computed[:, :] = True
+    # hog = bf.getHog(gray, normalize=False, flatten=False)
+    # hog_computed[:, :] = True
 
-    for i in range(20, visited.shape[0]-20, blind_skip):
-        for j in range(20, visited.shape[1]-20, blind_skip):
-            test = (i, j)
+    # for i in range(20, visited.shape[0]-20, blind_skip):
+    #     for j in range(20, visited.shape[1]-20, blind_skip):
+    #         test = (i, j)
 
-            # only proceed if valid and not visited
-            if (not isValid(hog, test, eye_cells)) or visited[i, j]:
-                continue
+    #         # only proceed if valid and not visited
+    #         if (not isValid(hog, test, eye_cells)) or visited[i, j]:
+    #             continue
 
-            # handle this point
-            visited[i, j] = True
-            score = testWindow(hog, svm, scaler, eye_cells, test)[0]
-            pq.put_nowait((score, test))
+    #         # handle this point
+    #         visited[i, j] = True
+    #         score = testWindow(hog, svm, scaler, eye_cells, test)[0]
+    #         pq.put_nowait((score, test))
 
-            if score <= 0:
-                tracker.insert(score, test)
+    #         if score <= 0:
+    #             tracker.insert(score, test)
 
-    greedySearch(hog, hog_computed, svm, scaler, 
-                 eye_cells, visited, tracker, pq) 
-    if tracker.isDone():
-        tracker.printClusterScores()
-        clusters, scores = tracker.getBigClusters()
-        centers = cellTLs2ctrs(clusters, eye_shape)
-        return centers, scores
+    # greedySearch(hog, hog_computed, svm, scaler, 
+    #              eye_cells, visited, tracker, pq) 
+    # if tracker.isDone():
+    #     tracker.printClusterScores()
+    #     clusters, scores = tracker.getBigClusters()
+    #     centers = cellTLs2ctrs(clusters, eye_shape)
+    #     return centers, scores
 
     print "Did not find two good matches."
-    tracker.printClusterScores()
     clusters, scores = tracker.getTwoBestClusters()
-    centers = cellTLs2ctrs(clusters, eye_shape)
-    return centers, scores
+    if len(clusters) == 2:
+        centers = cellTLs2ctrs(clusters, eye_shape)
+        return centers, scores
+    else:
+        return locs, [-0.1, -0.1]
 
 
 def greedySearch(hog, hog_computed, svm, scaler, eye_cells, 
@@ -313,6 +317,10 @@ class MatchTracker:
             best_clusters.put_nowait((avg_mass, centroid))
             cnt += 1
 
+        if cnt < 2:
+            print "Warning. Only found %d clusters." % cnt
+            return [], []
+
         avg_mass, cluster1 = best_clusters.get_nowait(); best_clusters.task_done()
         avg_mass, cluster2 = best_clusters.get_nowait(); best_clusters.task_done()
 
@@ -320,7 +328,6 @@ class MatchTracker:
         scores = [self.clusters[cluster1]["total_mass"],
                   self.clusters[cluster2]["total_mass"]]
 
-        print "Total clusters: " + str(cnt)
         return centroids, scores
 
     def printClusterScores(self):

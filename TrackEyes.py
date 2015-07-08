@@ -10,7 +10,7 @@ import BasicFunctions as bf
 from FindEyes import haarEyes, createSVM, searchForEyesSVM
 import sys, time
 import cPickle as pickle
-from LocationPredictors import LocationPredictorLPF
+from LocationPredictors import LocationPredictorLPF, LocationPredictorKalman
 
 def trackEyes(svm, scaler, video_source=0, eye_shape=(24, 48),
 			  out_file="eye_tracking_data.pkl"):
@@ -30,8 +30,8 @@ def trackEyes(svm, scaler, video_source=0, eye_shape=(24, 48),
 	eye_locations = {"raw" : [], "filtered" : []}
 	
 	# initialize filters for eye locations
-	l_filter = LocationPredictorLPF(start=(350, 500))
-	r_filter = LocationPredictorLPF(start=(360, 675))
+	l_filter = LocationPredictorKalman(start=(250, 400))
+	r_filter = LocationPredictorKalman(start=(460, 875))
 
 	try:
 
