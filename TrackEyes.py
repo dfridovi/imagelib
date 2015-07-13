@@ -7,10 +7,10 @@ import numpy as np
 import threading, os
 from Queue import Queue
 import BasicFunctions as bf
-from FindEyes import haarEyes, createSVM, searchForEyesSVM
+from FindEyes import haarEyes, createSVM, searchForEyesSVM, isValid
 import sys, time
 import cPickle as pickle
-from LocationPredictors import LocationPredictorLPF, LocationPredictorKalman
+from LocationPredictors import LocationPredictorKalman
 
 def trackEyes(svm, scaler, video_source=0, eye_shape=(24, 48),
 			  out_file="eye_tracking_data.pkl"):
@@ -38,6 +38,15 @@ def trackEyes(svm, scaler, video_source=0, eye_shape=(24, 48),
 		while True:
 			img, raw = fetchFrame(cam)
 			locs = [l_filter.predict(), r_filter.predict()]
+
+			# restart filters if invalid
+			if not isValid(img, locs[0], eye_shape):
+				l_filter = LocationPredictorKalman(start=(250, 400))
+				locs[0] = l_filter.predict()
+			if not isValid(img, locs[1], eye_shape):
+				r_filter = LocationPredictorKalman(start=(460, 875))
+				locs[1] = r_filter.predict()
+
 			found, scores = findEyes(img, svm, scaler, eye_shape, locs)
 
 			print found

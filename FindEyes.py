@@ -78,8 +78,8 @@ def createSVM(training, eye_centers, eye_shape):
         num_eyes += 1
 
         # change lighting conditions
-        eyes.append(bf.adjustExposure(new_eye, 0.75))
-        eyes.append(bf.adjustExposure(new_eye, 0.9))
+        eyes.append(bf.adjustExposure(new_eye, 0.5))
+        eyes.append(bf.adjustExposure(new_eye, 1.5))
         num_eyes += 2
 
     # compute HOG for eyes and negs

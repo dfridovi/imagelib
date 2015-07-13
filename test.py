@@ -2,9 +2,7 @@
 Test file to demonstrate imagelib functionality.
 """
 
-import cv2
 import numpy as np
-import matplotlib.pyplot as plt
 import BasicFunctions as bf
 from Sharpening import sharpen
 from Blurring import blur
@@ -26,6 +24,12 @@ img = bf.imread("me.jpg")
 # test sharpening
 #sharpened = sharpen(img, k=21, lo_pass=True, min_diff=0.01, alpha=3.0)
 #bf.imshow(sharpened)
+
+# test exposure adjustment
+# darker = bf.adjustExposure(img, gamma=1.5)
+# bf.imshow(darker)
+# lighter = bf.adjustExposure(img, gamma=0.5)
+# bf.imshow(lighter)
 
 # test eye detection
 # eye_shape = (25, 50)
